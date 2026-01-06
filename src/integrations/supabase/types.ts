@@ -14,7 +14,134 @@ export type Database = {
   }
   public: {
     Tables: {
-      [_ in never]: never
+      appointments: {
+        Row: {
+          amount_paid: number
+          appointment_date: string
+          appointment_time: string
+          client_name: string
+          client_phone: string
+          created_at: string
+          id: string
+          payment_type: string
+          professional_id: string | null
+          service_id: string | null
+          status: string
+          stripe_session_id: string | null
+          total_amount: number
+        }
+        Insert: {
+          amount_paid?: number
+          appointment_date: string
+          appointment_time: string
+          client_name: string
+          client_phone: string
+          created_at?: string
+          id?: string
+          payment_type: string
+          professional_id?: string | null
+          service_id?: string | null
+          status?: string
+          stripe_session_id?: string | null
+          total_amount: number
+        }
+        Update: {
+          amount_paid?: number
+          appointment_date?: string
+          appointment_time?: string
+          client_name?: string
+          client_phone?: string
+          created_at?: string
+          id?: string
+          payment_type?: string
+          professional_id?: string | null
+          service_id?: string | null
+          status?: string
+          stripe_session_id?: string | null
+          total_amount?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "appointments_professional_id_fkey"
+            columns: ["professional_id"]
+            isOneToOne: false
+            referencedRelation: "professionals"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "appointments_service_id_fkey"
+            columns: ["service_id"]
+            isOneToOne: false
+            referencedRelation: "services"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      professionals: {
+        Row: {
+          created_at: string
+          id: string
+          name: string
+          phone: string
+          photo_url: string | null
+          specialty: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          name: string
+          phone: string
+          photo_url?: string | null
+          specialty: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          name?: string
+          phone?: string
+          photo_url?: string | null
+          specialty?: string
+        }
+        Relationships: []
+      }
+      services: {
+        Row: {
+          created_at: string
+          duration: number
+          id: string
+          name: string
+          photo_url: string | null
+          price: number
+          professional_id: string
+        }
+        Insert: {
+          created_at?: string
+          duration: number
+          id?: string
+          name: string
+          photo_url?: string | null
+          price: number
+          professional_id: string
+        }
+        Update: {
+          created_at?: string
+          duration?: number
+          id?: string
+          name?: string
+          photo_url?: string | null
+          price?: number
+          professional_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "services_professional_id_fkey"
+            columns: ["professional_id"]
+            isOneToOne: false
+            referencedRelation: "professionals"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
     }
     Views: {
       [_ in never]: never
