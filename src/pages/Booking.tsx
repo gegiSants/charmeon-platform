@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import Header from '@/components/Header';
 import Footer from '@/components/Footer';
@@ -10,8 +10,8 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Calendar } from '@/components/ui/calendar';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { professionals, services, generateTimeSlots, TimeSlot } from '@/data/mockData';
-import { ChevronRight, ChevronLeft, User, Phone } from 'lucide-react';
+import { useProfessionals, useServices, generateTimeSlots, createAppointment, TimeSlot, Professional, Service } from '@/hooks/useAppointments';
+import { ChevronRight, ChevronLeft, User, Phone, Loader2 } from 'lucide-react';
 import { format } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 import { toast } from 'sonner';
@@ -20,6 +20,7 @@ type BookingStep = 'info' | 'professional' | 'service' | 'datetime' | 'confirm';
 
 const Booking = () => {
   const navigate = useNavigate();
+  const { professionals, loading: loadingProfessionals } = useProfessionals();
   const [step, setStep] = useState<BookingStep>('info');
   const [clientName, setClientName] = useState('');
   const [clientPhone, setClientPhone] = useState('');
@@ -28,6 +29,10 @@ const Booking = () => {
   const [selectedDate, setSelectedDate] = useState<Date | undefined>(undefined);
   const [selectedTime, setSelectedTime] = useState<string | null>(null);
   const [timeSlots, setTimeSlots] = useState<TimeSlot[]>([]);
+  const [loadingSlots, setLoadingSlots] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+
+  const { services, loading: loadingServices } = useServices(selectedProfessional);
 
   const stepOrder: BookingStep[] = ['info', 'professional', 'service', 'datetime', 'confirm'];
   const currentStepIndex = stepOrder.indexOf(step);
@@ -46,11 +51,14 @@ const Booking = () => {
     }
   };
 
-  const handleDateSelect = (date: Date | undefined) => {
+  const handleDateSelect = async (date: Date | undefined) => {
     setSelectedDate(date);
     setSelectedTime(null);
-    if (date) {
-      setTimeSlots(generateTimeSlots(date));
+    if (date && selectedProfessional) {
+      setLoadingSlots(true);
+      const slots = await generateTimeSlots(date, selectedProfessional);
+      setTimeSlots(slots);
+      setLoadingSlots(false);
     }
   };
 
@@ -83,23 +91,50 @@ const Booking = () => {
     }
   };
 
-  const handleConfirm = () => {
-    toast.success('Agendamento realizado! Redirecionando para pagamento...');
-    navigate('/pagamento', {
-      state: {
+  const handleConfirm = async () => {
+    const selectedProData = professionals.find(p => p.id === selectedProfessional);
+    const selectedServiceData = services.find(s => s.id === selectedService);
+    
+    if (!selectedProData || !selectedServiceData || !selectedDate || !selectedTime) {
+      toast.error('Dados incompletos. Por favor, revise o agendamento.');
+      return;
+    }
+
+    setIsSubmitting(true);
+    try {
+      const appointment = await createAppointment({
         clientName,
         clientPhone,
-        professional: professionals.find(p => p.id === selectedProfessional),
-        service: services.find(s => s.id === selectedService),
+        professionalId: selectedProfessional!,
+        serviceId: selectedService!,
         date: selectedDate,
         time: selectedTime,
-      },
-    });
+        paymentType: 'sinal', // Default, will be chosen on payment page
+        totalAmount: Number(selectedServiceData.price),
+      });
+
+      toast.success('Agendamento criado! Redirecionando para pagamento...');
+      navigate('/pagamento', {
+        state: {
+          appointmentId: appointment.id,
+          clientName,
+          clientPhone,
+          professional: selectedProData,
+          service: selectedServiceData,
+          date: selectedDate,
+          time: selectedTime,
+        },
+      });
+    } catch (error) {
+      console.error('Error creating appointment:', error);
+      toast.error('Erro ao criar agendamento. Tente novamente.');
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   const selectedProData = professionals.find(p => p.id === selectedProfessional);
   const selectedServiceData = services.find(s => s.id === selectedService);
-  const availableServices = services.filter(s => s.professionalId === selectedProfessional);
 
   const stepTitles: Record<BookingStep, string> = {
     info: 'Suas Informações',
@@ -182,31 +217,56 @@ const Booking = () => {
               {/* Step: Professional */}
               {step === 'professional' && (
                 <div className="space-y-4">
-                  {professionals.map((pro) => (
-                    <ProfessionalCard
-                      key={pro.id}
-                      professional={pro}
-                      selected={selectedProfessional === pro.id}
-                      onClick={() => {
-                        setSelectedProfessional(pro.id);
-                        setSelectedService(null);
-                      }}
-                    />
-                  ))}
+                  {loadingProfessionals ? (
+                    <div className="flex justify-center py-8">
+                      <Loader2 className="h-8 w-8 animate-spin text-primary" />
+                    </div>
+                  ) : (
+                    professionals.map((pro) => (
+                      <ProfessionalCard
+                        key={pro.id}
+                        professional={{
+                          id: pro.id,
+                          name: pro.name,
+                          specialty: pro.specialty,
+                          photo: pro.photo_url || 'https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=400&h=400&fit=crop&crop=face',
+                          phone: pro.phone,
+                          services: [],
+                        }}
+                        selected={selectedProfessional === pro.id}
+                        onClick={() => {
+                          setSelectedProfessional(pro.id);
+                          setSelectedService(null);
+                        }}
+                      />
+                    ))
+                  )}
                 </div>
               )}
 
               {/* Step: Service */}
               {step === 'service' && (
                 <div className="space-y-3">
-                  {availableServices.map((service) => (
-                    <ServiceCard
-                      key={service.id}
-                      service={service}
-                      selected={selectedService === service.id}
-                      onClick={() => setSelectedService(service.id)}
-                    />
-                  ))}
+                  {loadingServices ? (
+                    <div className="flex justify-center py-8">
+                      <Loader2 className="h-8 w-8 animate-spin text-primary" />
+                    </div>
+                  ) : (
+                    services.map((service) => (
+                      <ServiceCard
+                        key={service.id}
+                        service={{
+                          id: service.id,
+                          name: service.name,
+                          price: Number(service.price),
+                          duration: service.duration,
+                          professionalId: service.professional_id,
+                        }}
+                        selected={selectedService === service.id}
+                        onClick={() => setSelectedService(service.id)}
+                      />
+                    ))
+                  )}
                 </div>
               )}
 
@@ -230,19 +290,27 @@ const Booking = () => {
                       <h4 className="font-medium mb-3">
                         Horários disponíveis para {format(selectedDate, "dd 'de' MMMM", { locale: ptBR })}:
                       </h4>
-                      <div className="grid grid-cols-4 gap-2">
-                        {timeSlots.map((slot) => (
-                          <TimeSlotButton
-                            key={slot.time}
-                            slot={slot}
-                            selected={selectedTime === slot.time}
-                            onClick={() => setSelectedTime(slot.time)}
-                          />
-                        ))}
-                      </div>
-                      <p className="text-xs text-muted-foreground mt-2">
-                        Horários riscados não estão disponíveis
-                      </p>
+                      {loadingSlots ? (
+                        <div className="flex justify-center py-4">
+                          <Loader2 className="h-6 w-6 animate-spin text-primary" />
+                        </div>
+                      ) : (
+                        <>
+                          <div className="grid grid-cols-4 gap-2">
+                            {timeSlots.map((slot) => (
+                              <TimeSlotButton
+                                key={slot.time}
+                                slot={slot}
+                                selected={selectedTime === slot.time}
+                                onClick={() => setSelectedTime(slot.time)}
+                              />
+                            ))}
+                          </div>
+                          <p className="text-xs text-muted-foreground mt-2">
+                            Horários riscados não estão disponíveis
+                          </p>
+                        </>
+                      )}
                     </div>
                   )}
                 </div>
@@ -281,7 +349,7 @@ const Booking = () => {
                     <div className="border-t border-border pt-3 flex justify-between">
                       <span className="font-semibold">Valor:</span>
                       <span className="font-semibold text-primary">
-                        R$ {selectedServiceData?.price.toFixed(2)}
+                        R$ {Number(selectedServiceData?.price).toFixed(2)}
                       </span>
                     </div>
                   </div>
@@ -300,9 +368,18 @@ const Booking = () => {
                 )}
 
                 {step === 'confirm' ? (
-                  <Button onClick={handleConfirm}>
-                    Confirmar e Pagar
-                    <ChevronRight className="h-4 w-4 ml-1" />
+                  <Button onClick={handleConfirm} disabled={isSubmitting}>
+                    {isSubmitting ? (
+                      <>
+                        <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                        Processando...
+                      </>
+                    ) : (
+                      <>
+                        Confirmar e Pagar
+                        <ChevronRight className="h-4 w-4 ml-1" />
+                      </>
+                    )}
                   </Button>
                 ) : (
                   <Button onClick={goToNextStep} disabled={!canProceed()}>

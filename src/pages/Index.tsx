@@ -4,10 +4,12 @@ import { Card, CardContent } from '@/components/ui/card';
 import Header from '@/components/Header';
 import Footer from '@/components/Footer';
 import ProfessionalCard from '@/components/ProfessionalCard';
-import { professionals } from '@/data/mockData';
-import { Calendar, Sparkles, Heart, Shield, MapPin, Coffee } from 'lucide-react';
+import { useProfessionals } from '@/hooks/useAppointments';
+import { Calendar, Sparkles, Heart, Shield, MapPin, Coffee, Loader2 } from 'lucide-react';
 
 const Index = () => {
+  const { professionals, loading } = useProfessionals();
+
   return (
     <div className="min-h-screen bg-background">
       <Header />
@@ -98,11 +100,26 @@ const Index = () => {
             </p>
           </div>
           <div className="grid md:grid-cols-2 gap-6 max-w-2xl mx-auto">
-            {professionals.map((professional) => (
-              <Link to="/agendar" key={professional.id}>
-                <ProfessionalCard professional={professional} />
-              </Link>
-            ))}
+            {loading ? (
+              <div className="col-span-2 flex justify-center py-8">
+                <Loader2 className="h-8 w-8 animate-spin text-primary" />
+              </div>
+            ) : (
+              professionals.map((professional) => (
+                <Link to="/agendar" key={professional.id}>
+                  <ProfessionalCard 
+                    professional={{
+                      id: professional.id,
+                      name: professional.name,
+                      specialty: professional.specialty,
+                      photo: professional.photo_url || 'https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=400&h=400&fit=crop&crop=face',
+                      phone: professional.phone,
+                      services: [],
+                    }} 
+                  />
+                </Link>
+              ))
+            )}
           </div>
         </div>
       </section>
