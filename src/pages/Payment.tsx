@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { useLocation, useNavigate } from 'react-router-dom';
+import { useLocation, useNavigate, useSearchParams } from 'react-router-dom';
 import Header from '@/components/Header';
 import Footer from '@/components/Footer';
 import { Button } from '@/components/ui/button';
@@ -8,21 +8,25 @@ import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { Label } from '@/components/ui/label';
 import { format } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
-import { CreditCard, Wallet, CheckCircle, AlertCircle } from 'lucide-react';
+import { CreditCard, Wallet, AlertCircle, Loader2 } from 'lucide-react';
 import { toast } from 'sonner';
+import { supabase } from '@/integrations/supabase/client';
 
 const Payment = () => {
   const location = useLocation();
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const [paymentType, setPaymentType] = useState<'sinal' | 'total'>('sinal');
   const [isProcessing, setIsProcessing] = useState(false);
-  const [isConfirmed, setIsConfirmed] = useState(false);
+
+  const canceled = searchParams.get('canceled');
 
   const bookingData = location.state as {
+    appointmentId: string;
     clientName: string;
     clientPhone: string;
-    professional: { name: string };
-    service: { name: string; price: number };
+    professional: { id: string; name: string };
+    service: { id: string; name: string; price: number };
     date: Date;
     time: string;
   } | null;
@@ -42,87 +46,56 @@ const Payment = () => {
     );
   }
 
-  const sinalValue = bookingData.service.price * 0.3;
-  const restanteValue = bookingData.service.price - sinalValue;
-  const totalValue = bookingData.service.price;
+  const totalValue = Number(bookingData.service.price);
+  const sinalValue = totalValue * 0.3;
+  const restanteValue = totalValue - sinalValue;
 
-  const handlePayment = () => {
+  const handlePayment = async () => {
     setIsProcessing(true);
-    // Simula processamento de pagamento
-    setTimeout(() => {
+    
+    try {
+      const amount = paymentType === 'sinal' ? sinalValue : totalValue;
+      
+      const { data, error } = await supabase.functions.invoke('create-checkout', {
+        body: {
+          appointmentId: bookingData.appointmentId,
+          clientName: bookingData.clientName,
+          serviceName: bookingData.service.name,
+          amount: amount,
+          paymentType: paymentType,
+          professionalName: bookingData.professional.name,
+          appointmentDate: format(new Date(bookingData.date), "dd/MM/yyyy", { locale: ptBR }),
+          appointmentTime: bookingData.time,
+        },
+      });
+
+      if (error) throw error;
+
+      if (data?.url) {
+        // Open Stripe Checkout in new tab
+        window.open(data.url, '_blank');
+        toast.success('Redirecionando para pagamento...');
+        
+        // Navigate to success page after short delay
+        setTimeout(() => {
+          navigate('/pagamento-sucesso', { 
+            state: { 
+              ...bookingData, 
+              paymentType,
+              amountPaid: amount,
+              restante: paymentType === 'sinal' ? restanteValue : 0,
+              pending: true
+            } 
+          });
+        }, 2000);
+      }
+    } catch (error) {
+      console.error('Payment error:', error);
+      toast.error('Erro ao processar pagamento. Tente novamente.');
+    } finally {
       setIsProcessing(false);
-      setIsConfirmed(true);
-      toast.success('Pagamento confirmado!');
-    }, 2000);
+    }
   };
-
-  if (isConfirmed) {
-    return (
-      <div className="min-h-screen bg-background">
-        <Header />
-        <main className="container mx-auto px-4 py-16">
-          <Card className="max-w-lg mx-auto text-center">
-            <CardContent className="pt-8 pb-8">
-              <div className="w-20 h-20 rounded-full bg-green-100 flex items-center justify-center mx-auto mb-6">
-                <CheckCircle className="h-10 w-10 text-green-600" />
-              </div>
-              <h1 className="font-serif text-2xl font-semibold text-foreground mb-4">
-                Agendamento Confirmado!
-              </h1>
-              <div className="bg-secondary/50 rounded-lg p-4 mb-6 text-left space-y-2">
-                <p><strong>Cliente:</strong> {bookingData.clientName}</p>
-                <p><strong>Serviço:</strong> {bookingData.service.name}</p>
-                <p><strong>Profissional:</strong> {bookingData.professional.name}</p>
-                <p>
-                  <strong>Data:</strong>{' '}
-                  {format(new Date(bookingData.date), "dd 'de' MMMM 'de' yyyy", { locale: ptBR })}
-                </p>
-                <p><strong>Horário:</strong> {bookingData.time}</p>
-                <p className="text-primary font-semibold">
-                  <strong>Pago:</strong> R$ {paymentType === 'sinal' ? sinalValue.toFixed(2) : totalValue.toFixed(2)}
-                </p>
-              </div>
-
-              {paymentType === 'sinal' && (
-                <div className="bg-accent/30 rounded-lg p-4 mb-6">
-                  <p className="text-sm">
-                    💰 <strong>Restante a pagar:</strong> R$ {restanteValue.toFixed(2)}
-                  </p>
-                  <p className="text-xs text-muted-foreground mt-1">
-                    O valor restante deve ser pago presencialmente no dia do atendimento.
-                  </p>
-                </div>
-              )}
-
-              <div className="bg-rose-soft/50 rounded-lg p-4 mb-6">
-                <h4 className="font-semibold text-sm mb-2">📋 Lembrete Importante:</h4>
-                <ul className="text-xs text-muted-foreground text-left space-y-1">
-                  <li>• Avise com 48h de antecedência em caso de imprevisto</li>
-                  <li>• Não remova a cutícula na semana do agendamento</li>
-                  <li>• Em caso de atraso ou não comparecimento, o sinal não será ressarcido</li>
-                </ul>
-              </div>
-
-              <div className="flex flex-col sm:flex-row gap-3">
-                <Button onClick={() => navigate('/')} variant="outline" className="flex-1">
-                  Voltar ao Início
-                </Button>
-                <a
-                  href="https://wa.me/5511990278446"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="flex-1"
-                >
-                  <Button className="w-full">Falar no WhatsApp</Button>
-                </a>
-              </div>
-            </CardContent>
-          </Card>
-        </main>
-        <Footer />
-      </div>
-    );
-  }
 
   return (
     <div className="min-h-screen bg-background">
@@ -130,6 +103,12 @@ const Payment = () => {
 
       <main className="container mx-auto px-4 py-8">
         <div className="max-w-lg mx-auto">
+          {canceled && (
+            <div className="bg-destructive/10 text-destructive rounded-lg p-4 mb-6">
+              <p className="text-sm">Pagamento cancelado. Você pode tentar novamente.</p>
+            </div>
+          )}
+
           <Card>
             <CardHeader>
               <CardTitle className="font-serif text-xl">Pagamento</CardTitle>
@@ -224,13 +203,21 @@ const Payment = () => {
                 disabled={isProcessing}
               >
                 {isProcessing ? (
-                  'Processando...'
+                  <>
+                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                    Processando...
+                  </>
                 ) : (
                   <>
+                    <CreditCard className="h-4 w-4 mr-2" />
                     Pagar R$ {paymentType === 'sinal' ? sinalValue.toFixed(2) : totalValue.toFixed(2)}
                   </>
                 )}
               </Button>
+
+              <p className="text-xs text-center text-muted-foreground mt-4">
+                Pagamento seguro processado por Stripe
+              </p>
             </CardContent>
           </Card>
         </div>
