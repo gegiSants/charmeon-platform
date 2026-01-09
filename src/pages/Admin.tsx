@@ -211,24 +211,46 @@ const Admin = () => {
   const handleAddService = async () => {
     const professionalId = serviceFormProfessional || (selectedProfessional !== 'all' ? selectedProfessional : '');
     
-    if (!professionalId || !newService.name || !newService.price || !newService.duration) {
-      toast.error('Selecione uma profissional e preencha todos os campos obrigatórios');
+    // Validação mais detalhada
+    if (!professionalId) {
+      toast.error('Selecione uma profissional');
+      return;
+    }
+    
+    if (!newService.name || !newService.name.trim()) {
+      toast.error('Preencha o nome do serviço');
+      return;
+    }
+    
+    if (!newService.price || parseFloat(newService.price) <= 0) {
+      toast.error('Preencha um valor válido');
+      return;
+    }
+    
+    if (!newService.duration || parseInt(newService.duration) <= 0) {
+      toast.error('Preencha uma duração válida');
       return;
     }
 
-    const { error } = await supabase
+    const serviceData = {
+      professional_id: professionalId,
+      name: newService.name.trim(),
+      price: parseFloat(newService.price),
+      duration: parseInt(newService.duration),
+    };
+
+    console.log('Inserindo serviço:', serviceData);
+
+    const { data, error } = await supabase
       .from('services')
-      .insert({
-        professional_id: professionalId,
-        name: newService.name,
-        price: parseFloat(newService.price),
-        duration: parseInt(newService.duration),
-      });
+      .insert(serviceData)
+      .select();
 
     if (error) {
       console.error('Error adding service:', error);
-      toast.error('Erro ao adicionar serviço');
+      toast.error(`Erro ao adicionar serviço: ${error.message || 'Erro desconhecido'}`);
     } else {
+      console.log('Serviço adicionado com sucesso:', data);
       toast.success(`Serviço "${newService.name}" adicionado!`);
       setNewService({ name: '', price: '', duration: '' });
       setServiceFormProfessional('');
