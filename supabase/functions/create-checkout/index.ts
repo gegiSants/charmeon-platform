@@ -38,7 +38,89 @@ serve(async (req) => {
       ? `Sinal (30%) - ${serviceName} - ${professionalName}`
       : `Pagamento Total - ${serviceName} - ${professionalName}`;
 
-    // Usar checkout hospedado (sempre funciona)
+    // Tentar gerar código PIX direto primeiro (funciona com token de produção)
+    try {
+      const idempotencyKey = crypto.randomUUID();
+      
+      const paymentData: {
+        transaction_amount: number;
+        description: string;
+        payment_method_id: string;
+        payer: {
+          email: string;
+          first_name: string;
+          last_name: string;
+          phone?: { area_code: string; number: string };
+        };
+        external_reference: string;
+        metadata: Record<string, string>;
+      } = {
+        transaction_amount: amount,
+        description: paymentDescription,
+        payment_method_id: "pix",
+        payer: {
+          email: clientEmail || `cliente${Date.now()}@exemplo.com`,
+          first_name: clientName.split(' ')[0] || clientName,
+          last_name: clientName.split(' ').slice(1).join(' ') || clientName,
+        },
+        external_reference: appointmentId,
+        metadata: {
+          appointmentId,
+          clientName,
+          paymentType,
+          serviceName,
+          professionalName,
+          appointmentDate,
+          appointmentTime,
+        },
+      };
+
+      if (clientPhone) {
+        const phoneNumbers = clientPhone.replace(/\D/g, '');
+        if (phoneNumbers.length >= 10) {
+          paymentData.payer.phone = {
+            area_code: phoneNumbers.substring(0, 2),
+            number: phoneNumbers.substring(2),
+          };
+        }
+      }
+
+      const directPaymentResponse = await fetch("https://api.mercadopago.com/v1/payments", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${cleanToken}`,
+          "X-Idempotency-Key": idempotencyKey,
+        },
+        body: JSON.stringify(paymentData),
+      });
+
+      // Se funcionou, retornar código PIX direto
+      if (directPaymentResponse.ok) {
+        const payment = await directPaymentResponse.json();
+        const pixData = payment.point_of_interaction?.transaction_data;
+
+        if (pixData && pixData.qr_code) {
+          return new Response(JSON.stringify({ 
+            paymentId: payment.id,
+            preferenceId: payment.id,
+            qrCode: pixData.qr_code,
+            qrCodeBase64: pixData.qr_code_base64,
+            ticketUrl: pixData.ticket_url,
+            type: 'pix',
+            provider: 'mercadopago'
+          }), {
+            headers: { ...corsHeaders, "Content-Type": "application/json" },
+            status: 200,
+          });
+        }
+      }
+    } catch (error) {
+      // Se deu erro, continuar para fallback (checkout hospedado)
+      console.log("Direct PIX payment failed, using hosted checkout fallback");
+    }
+
+    // Fallback: usar checkout hospedado (sempre funciona, mas retorna link)
     const preferenceData = {
       items: [
         {
