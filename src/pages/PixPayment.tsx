@@ -4,7 +4,7 @@ import Header from '@/components/Header';
 import Footer from '@/components/Footer';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { QrCode, Loader2, CheckCircle, Copy, AlertCircle } from 'lucide-react';
+import { Loader2, CheckCircle, Copy, ExternalLink, AlertCircle } from 'lucide-react';
 import { format } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 import { toast } from 'sonner';
@@ -13,8 +13,7 @@ import { supabase } from '@/integrations/supabase/client';
 const PixPayment = () => {
   const location = useLocation();
   const navigate = useNavigate();
-  const [qrCode, setQrCode] = useState<string>('');
-  const [pixCode, setPixCode] = useState<string>('');
+  const [paymentLink, setPaymentLink] = useState<string>('');
   const [isLoading, setIsLoading] = useState(true);
   const [isPaid, setIsPaid] = useState(false);
   const [checkingPayment, setCheckingPayment] = useState(false);
@@ -28,9 +27,8 @@ const PixPayment = () => {
     date: Date;
     time: string;
     paymentId?: string;
-    qrCode?: string;
-    qrCodeBase64?: string;
-    ticketUrl?: string;
+    initPoint?: string;
+    sandboxInitPoint?: string;
     amount: number;
     restante: number;
   } | null;
@@ -41,14 +39,14 @@ const PixPayment = () => {
       return;
     }
 
-    // Se já temos o QR Code, usar diretamente
-    if (bookingData.qrCode || bookingData.qrCodeBase64) {
-      setQrCode(bookingData.qrCode || bookingData.qrCodeBase64 || '');
-      setPixCode(bookingData.qrCode || bookingData.qrCodeBase64 || '');
+    // Buscar link de pagamento
+    const link = bookingData.initPoint || bookingData.sandboxInitPoint;
+    if (link) {
+      setPaymentLink(link);
       setIsLoading(false);
       startPaymentPolling();
     } else {
-      toast.error('QR Code PIX não disponível');
+      toast.error('Link de pagamento não disponível');
       setIsLoading(false);
     }
   }, []);
@@ -95,10 +93,16 @@ const PixPayment = () => {
     });
   };
 
-  const copyPixCode = () => {
-    if (pixCode) {
-      navigator.clipboard.writeText(pixCode);
-      toast.success('Código PIX copiado!');
+  const copyPaymentLink = () => {
+    if (paymentLink) {
+      navigator.clipboard.writeText(paymentLink);
+      toast.success('Link de pagamento copiado!');
+    }
+  };
+
+  const openPaymentLink = () => {
+    if (paymentLink) {
+      window.open(paymentLink, '_blank');
     }
   };
 
@@ -116,8 +120,7 @@ const PixPayment = () => {
         <div className="max-w-lg mx-auto">
           <Card>
             <CardHeader>
-              <CardTitle className="font-serif text-xl flex items-center gap-2">
-                <QrCode className="h-5 w-5" />
+              <CardTitle className="font-serif text-xl">
                 Pagamento via PIX
               </CardTitle>
             </CardHeader>
@@ -149,7 +152,7 @@ const PixPayment = () => {
               {isLoading ? (
                 <div className="text-center py-8">
                   <Loader2 className="h-12 w-12 text-primary mx-auto mb-4 animate-spin" />
-                  <p className="text-muted-foreground">Carregando QR Code PIX...</p>
+                  <p className="text-muted-foreground">Gerando link de pagamento...</p>
                 </div>
               ) : isPaid ? (
                 <div className="text-center py-8">
@@ -159,54 +162,52 @@ const PixPayment = () => {
                   <h3 className="font-semibold text-lg mb-2">Pagamento Confirmado!</h3>
                   <p className="text-muted-foreground">Redirecionando...</p>
                 </div>
-              ) : qrCode ? (
+              ) : paymentLink ? (
                 <div className="space-y-6">
                   <div className="bg-primary/5 rounded-lg p-6 text-center">
-                    <p className="text-sm font-medium mb-4">Escaneie o QR Code com seu app de pagamento</p>
-                    <div className="bg-white p-4 rounded-lg inline-block mb-4">
-                      {bookingData?.qrCodeBase64 ? (
-                        <img 
-                          src={bookingData.qrCodeBase64}
-                          alt="QR Code PIX"
-                          className="w-64 h-64 mx-auto"
-                        />
-                      ) : (
-                        <img 
-                          src={`https://api.qrserver.com/v1/create-qr-code/?size=300x300&data=${encodeURIComponent(qrCode)}`}
-                          alt="QR Code PIX"
-                          className="w-64 h-64 mx-auto"
-                        />
-                      )}
-                    </div>
-                    <div className="bg-muted rounded-lg p-3 mb-4">
-                      <p className="text-xs text-muted-foreground mb-2">Ou copie o código PIX:</p>
+                    <p className="text-sm font-medium mb-4">
+                      Clique no botão abaixo para pagar via PIX
+                    </p>
+                    
+                    <Button
+                      size="lg"
+                      className="w-full mb-4 gap-2"
+                      onClick={openPaymentLink}
+                    >
+                      <ExternalLink className="h-5 w-5" />
+                      Abrir Link de Pagamento
+                    </Button>
+
+                    <div className="bg-muted rounded-lg p-4 mb-4">
+                      <p className="text-xs text-muted-foreground mb-2 font-semibold">
+                        Ou copie o link e cole no seu app do banco:
+                      </p>
                       <div className="flex items-center gap-2">
-                        <code className="flex-1 text-xs break-all text-left">{pixCode}</code>
+                        <code className="flex-1 text-xs break-all text-left bg-background p-2 rounded">
+                          {paymentLink}
+                        </code>
                         <Button
                           variant="outline"
                           size="sm"
-                          onClick={copyPixCode}
+                          onClick={copyPaymentLink}
                           className="shrink-0"
                         >
                           <Copy className="h-4 w-4" />
                         </Button>
                       </div>
                     </div>
-                    <p className="text-xs text-muted-foreground">
-                      O QR Code expira em 30 minutos
-                    </p>
-                    {bookingData?.ticketUrl && (
-                      <div className="mt-4">
-                        <a
-                          href={bookingData.ticketUrl}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="text-sm text-primary hover:underline"
-                        >
-                          Abrir comprovante em nova aba
-                        </a>
-                      </div>
-                    )}
+
+                    <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 text-left">
+                      <p className="text-xs text-blue-800 font-semibold mb-2">
+                        💡 Como pagar:
+                      </p>
+                      <ol className="text-xs text-blue-700 space-y-1 list-decimal list-inside">
+                        <li>Copie o link acima</li>
+                        <li>Abra o app do seu banco</li>
+                        <li>Cole o link no navegador do app</li>
+                        <li>Complete o pagamento PIX</li>
+                      </ol>
+                    </div>
                   </div>
 
                   {checkingPayment && (
@@ -219,11 +220,18 @@ const PixPayment = () => {
                       </div>
                     </div>
                   )}
+
+                  <div className="bg-muted/50 rounded-lg p-4">
+                    <p className="text-xs text-muted-foreground">
+                      <strong>Importante:</strong> Após realizar o pagamento, aguarde alguns instantes para confirmação automática. 
+                      O pagamento via PIX é confirmado instantaneamente.
+                    </p>
+                  </div>
                 </div>
               ) : (
                 <div className="text-center py-8">
                   <AlertCircle className="h-12 w-12 text-destructive mx-auto mb-4" />
-                  <p className="text-muted-foreground mb-4">Erro ao gerar QR Code PIX</p>
+                  <p className="text-muted-foreground mb-4">Erro ao gerar link de pagamento</p>
                   <Button onClick={() => navigate('/pagamento', { state: bookingData })}>
                     Tentar Novamente
                   </Button>
