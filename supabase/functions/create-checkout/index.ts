@@ -85,40 +85,44 @@ serve(async (req) => {
     }
 
     // Tentar criar pagamento direto PIX (gera QR code)
-    const directPaymentResponse = await fetch("https://api.mercadopago.com/v1/payments", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "Authorization": `Bearer ${cleanToken}`,
-        "X-Idempotency-Key": idempotencyKey,
-      },
-      body: JSON.stringify(paymentData),
-    });
-
-    // Se funcionou, retornar QR code direto
-    if (directPaymentResponse.ok) {
-      const payment = await directPaymentResponse.json();
-      const pixData = payment.point_of_interaction?.transaction_data;
-
-      if (!pixData) {
-        throw new Error("QR Code PIX não foi gerado pelo Mercado Pago");
-      }
-
-      return new Response(JSON.stringify({ 
-        paymentId: payment.id,
-        preferenceId: payment.id,
-        qrCode: pixData.qr_code || pixData.qr_code_base64,
-        qrCodeBase64: pixData.qr_code_base64,
-        ticketUrl: pixData.ticket_url,
-        type: 'pix',
-        provider: 'mercadopago'
-      }), {
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-        status: 200,
+    let useDirectPayment = false;
+    try {
+      const directPaymentResponse = await fetch("https://api.mercadopago.com/v1/payments", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${cleanToken}`,
+          "X-Idempotency-Key": idempotencyKey,
+        },
+        body: JSON.stringify(paymentData),
       });
+
+      // Se funcionou, retornar QR code direto
+      if (directPaymentResponse.ok) {
+        const payment = await directPaymentResponse.json();
+        const pixData = payment.point_of_interaction?.transaction_data;
+
+        if (pixData) {
+          return new Response(JSON.stringify({ 
+            paymentId: payment.id,
+            preferenceId: payment.id,
+            qrCode: pixData.qr_code || pixData.qr_code_base64,
+            qrCodeBase64: pixData.qr_code_base64,
+            ticketUrl: pixData.ticket_url,
+            type: 'pix',
+            provider: 'mercadopago'
+          }), {
+            headers: { ...corsHeaders, "Content-Type": "application/json" },
+            status: 200,
+          });
+        }
+      }
+    } catch (error) {
+      // Se deu erro, continuar para fallback
+      console.log("Direct payment failed, using hosted checkout");
     }
 
-    // Se falhou, usar checkout hospedado (fallback para tokens de teste)
+    // Se falhou ou não gerou QR code, usar checkout hospedado (fallback para tokens de teste)
     const preferenceData = {
       items: [
         {
