@@ -8,7 +8,7 @@ import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { Label } from '@/components/ui/label';
 import { format } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
-import { AlertCircle, Loader2, QrCode } from 'lucide-react';
+import { AlertCircle, Loader2, Link2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { supabase } from '@/integrations/supabase/client';
 
@@ -91,17 +91,19 @@ const Payment = () => {
 
       const data = await response.json();
 
-      if (!data?.qrCode && !data?.qrCodeBase64) {
-        throw new Error('QR Code PIX não foi gerado. Verifique se está usando token de produção do Mercado Pago.');
+      // Verificar se temos link de pagamento (initPoint ou sandboxInitPoint)
+      const paymentLink = data.initPoint || data.sandboxInitPoint;
+      if (!paymentLink && !data.paymentId) {
+        throw new Error('Link de pagamento não foi gerado.');
       }
 
       navigate('/pagamento-pix', {
         state: {
           ...bookingData,
           paymentId: data.paymentId,
-          qrCode: data.qrCode,
-          qrCodeBase64: data.qrCodeBase64,
-          ticketUrl: data.ticketUrl,
+          preferenceId: data.preferenceId || data.paymentId,
+          initPoint: data.initPoint,
+          sandboxInitPoint: data.sandboxInitPoint,
           amount: amount,
           restante: paymentType === 'sinal' ? restanteValue : 0,
         },
@@ -173,7 +175,7 @@ const Payment = () => {
                     <RadioGroupItem value="sinal" id="sinal" />
                     <div className="flex-1">
                       <div className="flex items-center gap-2">
-                        <QrCode className="h-4 w-4 text-primary" />
+                        <Link2 className="h-4 w-4 text-primary" />
                         <span className="font-medium">Pagar Sinal (30%) - PIX</span>
                       </div>
                       <p className="text-sm text-muted-foreground mt-1">
@@ -195,7 +197,7 @@ const Payment = () => {
                     <RadioGroupItem value="total" id="total" />
                     <div className="flex-1">
                       <div className="flex items-center gap-2">
-                        <QrCode className="h-4 w-4 text-primary" />
+                        <Link2 className="h-4 w-4 text-primary" />
                         <span className="font-medium">Pagar Total - PIX</span>
                       </div>
                       <p className="text-sm text-muted-foreground mt-1">
@@ -222,11 +224,11 @@ const Payment = () => {
               {/* Aviso sobre método de pagamento */}
               <div className="bg-primary/10 border border-primary/20 rounded-lg p-4 mb-6">
                 <p className="text-sm text-primary font-medium flex items-center gap-2">
-                  <QrCode className="h-4 w-4" />
+                  <Link2 className="h-4 w-4" />
                   Pagamento via PIX - Sem taxas adicionais
                 </p>
                 <p className="text-xs text-muted-foreground mt-1">
-                  Você receberá um QR Code para pagamento instantâneo via PIX
+                  Você receberá um link de pagamento para pagar via PIX
                 </p>
               </div>
 
@@ -243,7 +245,7 @@ const Payment = () => {
                   </>
                 ) : (
                   <>
-                    <QrCode className="h-4 w-4 mr-2" />
+                    <Link2 className="h-4 w-4 mr-2" />
                     Pagar R$ {amount.toFixed(2)} via PIX
                   </>
                 )}

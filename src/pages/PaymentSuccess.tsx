@@ -4,7 +4,7 @@ import Header from '@/components/Header';
 import Footer from '@/components/Footer';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
-import { CheckCircle, Loader2, QrCode } from 'lucide-react';
+import { CheckCircle, Loader2, Link2 } from 'lucide-react';
 import { format } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 import { supabase } from '@/integrations/supabase/client';
@@ -98,7 +98,7 @@ const PaymentSuccess = () => {
                     <strong>Pago:</strong> R$ {bookingData.amountPaid.toFixed(2)}
                   </p>
                   <p className="text-sm text-muted-foreground flex items-center gap-2 mt-1">
-                    <QrCode className="h-4 w-4" />
+                    <Link2 className="h-4 w-4" />
                     <span>Pagamento via PIX</span>
                   </p>
                 </div>
