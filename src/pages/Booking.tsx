@@ -10,8 +10,8 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Calendar } from '@/components/ui/calendar';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { useProfessionals, useServices, generateTimeSlots, createAppointment, TimeSlot, Professional, Service } from '@/hooks/useAppointments';
-import { ChevronRight, ChevronLeft, User, Phone, Loader2 } from 'lucide-react';
+import { useProfessionals, useServices, generateTimeSlots, createAppointment, getClientEmail, TimeSlot, Professional, Service } from '@/hooks/useAppointments';
+import { ChevronRight, ChevronLeft, User, Phone, Loader2, Mail } from 'lucide-react';
 import { format } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 import { toast } from 'sonner';
@@ -24,6 +24,9 @@ const Booking = () => {
   const [step, setStep] = useState<BookingStep>('info');
   const [clientName, setClientName] = useState('');
   const [clientPhone, setClientPhone] = useState('');
+  const [clientEmail, setClientEmail] = useState('');
+  const [existingEmail, setExistingEmail] = useState<string | null>(null);
+  const [checkingEmail, setCheckingEmail] = useState(false);
   const [selectedProfessional, setSelectedProfessional] = useState<string | null>(null);
   const [selectedService, setSelectedService] = useState<string | null>(null);
   const [selectedDate, setSelectedDate] = useState<Date | undefined>(undefined);
@@ -44,10 +47,34 @@ const Booking = () => {
     return `(${numbers.slice(0, 2)}) ${numbers.slice(2, 7)}-${numbers.slice(7, 11)}`;
   };
 
-  const handlePhoneChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handlePhoneChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const formatted = formatPhone(e.target.value);
     if (formatted.length <= 15) {
       setClientPhone(formatted);
+      
+      // Verificar se já existe email para este telefone
+      const cleanPhone = formatted.replace(/\D/g, '');
+      if (cleanPhone.length >= 10) {
+        setCheckingEmail(true);
+        try {
+          const email = await getClientEmail(cleanPhone);
+          if (email) {
+            setExistingEmail(email);
+            setClientEmail(email);
+          } else {
+            setExistingEmail(null);
+            setClientEmail('');
+          }
+        } catch (error) {
+          console.error('Erro ao buscar email:', error);
+          setExistingEmail(null);
+        } finally {
+          setCheckingEmail(false);
+        }
+      } else {
+        setExistingEmail(null);
+        setClientEmail('');
+      }
     }
   };
 
@@ -100,11 +127,18 @@ const Booking = () => {
       return;
     }
 
+    // Se não tem email existente, validar se foi preenchido
+    if (!existingEmail && !clientEmail.trim()) {
+      toast.error('Por favor, informe seu email para receber a confirmação do agendamento.');
+      return;
+    }
+
     setIsSubmitting(true);
     try {
       const appointment = await createAppointment({
         clientName,
         clientPhone,
+        clientEmail: clientEmail.trim() || existingEmail || undefined,
         professionalId: selectedProfessional!,
         serviceId: selectedService!,
         date: selectedDate,
@@ -209,8 +243,39 @@ const Booking = () => {
                       onChange={handlePhoneChange}
                       placeholder="(11) 99999-9999"
                       className="mt-1"
+                      disabled={checkingEmail}
                     />
+                    {checkingEmail && (
+                      <p className="text-xs text-muted-foreground mt-1">Verificando email cadastrado...</p>
+                    )}
                   </div>
+                  {!existingEmail && (
+                    <div>
+                      <Label htmlFor="email" className="flex items-center gap-2">
+                        <Mail className="h-4 w-4" />
+                        Email *
+                        <span className="text-xs text-muted-foreground font-normal ml-2">
+                          (para confirmação do agendamento)
+                        </span>
+                      </Label>
+                      <Input
+                        id="email"
+                        type="email"
+                        value={clientEmail}
+                        onChange={(e) => setClientEmail(e.target.value)}
+                        placeholder="seu@email.com"
+                        className="mt-1"
+                      />
+                    </div>
+                  )}
+                  {existingEmail && (
+                    <div className="bg-muted/50 rounded-lg p-3">
+                      <p className="text-sm text-muted-foreground flex items-center gap-2">
+                        <Mail className="h-4 w-4" />
+                        Email cadastrado: <span className="font-medium text-foreground">{existingEmail}</span>
+                      </p>
+                    </div>
+                  )}
                 </div>
               )}
 
