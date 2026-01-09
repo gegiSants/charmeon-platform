@@ -106,7 +106,10 @@ const Booking = () => {
   const canProceed = () => {
     switch (step) {
       case 'info':
-        return clientName.trim().length >= 3 && clientPhone.replace(/\D/g, '').length >= 10;
+        const hasValidName = clientName.trim().length >= 3;
+        const hasValidPhone = clientPhone.replace(/\D/g, '').length >= 10;
+        const hasEmail = existingEmail || (clientEmail.trim() && clientEmail.includes('@'));
+        return hasValidName && hasValidPhone && hasEmail;
       case 'professional':
         return selectedProfessional !== null;
       case 'service':
@@ -249,33 +252,51 @@ const Booking = () => {
                       <p className="text-xs text-muted-foreground mt-1">Verificando email cadastrado...</p>
                     )}
                   </div>
-                  {!existingEmail && (
-                    <div>
-                      <Label htmlFor="email" className="flex items-center gap-2">
-                        <Mail className="h-4 w-4" />
-                        Email *
-                        <span className="text-xs text-muted-foreground font-normal ml-2">
-                          (para confirmação do agendamento)
-                        </span>
-                      </Label>
-                      <Input
-                        id="email"
-                        type="email"
-                        value={clientEmail}
-                        onChange={(e) => setClientEmail(e.target.value)}
-                        placeholder="seu@email.com"
-                        className="mt-1"
-                      />
-                    </div>
-                  )}
-                  {existingEmail && (
-                    <div className="bg-muted/50 rounded-lg p-3">
-                      <p className="text-sm text-muted-foreground flex items-center gap-2">
-                        <Mail className="h-4 w-4" />
-                        Email cadastrado: <span className="font-medium text-foreground">{existingEmail}</span>
-                      </p>
-                    </div>
-                  )}
+                  <div>
+                    {existingEmail ? (
+                      <div className="bg-muted/50 rounded-lg p-3">
+                        <Label className="flex items-center gap-2 mb-2">
+                          <Mail className="h-4 w-4" />
+                          Email cadastrado
+                        </Label>
+                        <p className="text-sm font-medium text-foreground">{existingEmail}</p>
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="sm"
+                          className="mt-2 text-xs"
+                          onClick={() => {
+                            setExistingEmail(null);
+                            setClientEmail('');
+                          }}
+                        >
+                          Usar outro email
+                        </Button>
+                      </div>
+                    ) : (
+                      <>
+                        <Label htmlFor="email" className="flex items-center gap-2">
+                          <Mail className="h-4 w-4" />
+                          Email *
+                          <span className="text-xs text-muted-foreground font-normal ml-2">
+                            (obrigatório para confirmação)
+                          </span>
+                        </Label>
+                        <Input
+                          id="email"
+                          type="email"
+                          value={clientEmail}
+                          onChange={(e) => setClientEmail(e.target.value)}
+                          placeholder="seu@email.com"
+                          className="mt-1"
+                          required
+                        />
+                        {clientEmail && !clientEmail.includes('@') && (
+                          <p className="text-xs text-destructive mt-1">Email inválido</p>
+                        )}
+                      </>
+                    )}
+                  </div>
                 </div>
               )}
 
