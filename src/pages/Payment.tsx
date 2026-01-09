@@ -8,7 +8,7 @@ import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { Label } from '@/components/ui/label';
 import { format } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
-import { CreditCard, Wallet, AlertCircle, Loader2 } from 'lucide-react';
+import { AlertCircle, Loader2, QrCode } from 'lucide-react';
 import { toast } from 'sonner';
 import { supabase } from '@/integrations/supabase/client';
 
@@ -49,46 +49,63 @@ const Payment = () => {
   const totalValue = Number(bookingData.service.price);
   const sinalValue = totalValue * 0.3;
   const restanteValue = totalValue - sinalValue;
+  const amount = paymentType === 'sinal' ? sinalValue : totalValue;
 
   const handlePayment = async () => {
     setIsProcessing(true);
     
     try {
-      const amount = paymentType === 'sinal' ? sinalValue : totalValue;
+      const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
+      const supabaseKey = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
       
-      const { data, error } = await supabase.functions.invoke('create-checkout', {
-        body: {
+      if (!supabaseUrl || !supabaseKey) {
+        throw new Error('Configuração do Supabase não encontrada');
+      }
+
+      const response = await fetch(`${supabaseUrl}/functions/v1/create-checkout`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${supabaseKey}`,
+          'apikey': supabaseKey,
+        },
+        body: JSON.stringify({
           appointmentId: bookingData.appointmentId,
           clientName: bookingData.clientName,
+          clientEmail: '', // PIX não precisa de email obrigatório
+          clientPhone: bookingData.clientPhone,
           serviceName: bookingData.service.name,
           amount: amount,
           paymentType: paymentType,
           professionalName: bookingData.professional.name,
           appointmentDate: format(new Date(bookingData.date), "dd/MM/yyyy", { locale: ptBR }),
           appointmentTime: bookingData.time,
-        },
+        }),
       });
 
-      if (error) throw error;
-
-      if (data?.url) {
-        // Open Stripe Checkout in new tab
-        window.open(data.url, '_blank');
-        toast.success('Redirecionando para pagamento...');
-        
-        // Navigate to success page after short delay
-        setTimeout(() => {
-          navigate('/pagamento-sucesso', { 
-            state: { 
-              ...bookingData, 
-              paymentType,
-              amountPaid: amount,
-              restante: paymentType === 'sinal' ? restanteValue : 0,
-              pending: true
-            } 
-          });
-        }, 2000);
+      if (!response.ok) {
+        const errorText = await response.text();
+        console.error('Erro na resposta:', response.status, errorText);
+        throw new Error(`Erro ${response.status}: ${errorText}`);
       }
+
+      const data = await response.json();
+
+      if (!data?.qrCode && !data?.qrCodeBase64) {
+        throw new Error('QR Code PIX não foi gerado. Verifique se está usando token de produção do Mercado Pago.');
+      }
+
+      navigate('/pagamento-pix', {
+        state: {
+          ...bookingData,
+          paymentId: data.paymentId,
+          qrCode: data.qrCode,
+          qrCodeBase64: data.qrCodeBase64,
+          ticketUrl: data.ticketUrl,
+          amount: amount,
+          restante: paymentType === 'sinal' ? restanteValue : 0,
+        },
+      });
     } catch (error) {
       console.error('Payment error:', error);
       toast.error('Erro ao processar pagamento. Tente novamente.');
@@ -156,11 +173,14 @@ const Payment = () => {
                     <RadioGroupItem value="sinal" id="sinal" />
                     <div className="flex-1">
                       <div className="flex items-center gap-2">
-                        <Wallet className="h-4 w-4 text-primary" />
-                        <span className="font-medium">Pagar Sinal (30%)</span>
+                        <QrCode className="h-4 w-4 text-primary" />
+                        <span className="font-medium">Pagar Sinal (30%) - PIX</span>
                       </div>
                       <p className="text-sm text-muted-foreground mt-1">
-                        Pague R$ {sinalValue.toFixed(2)} agora e R$ {restanteValue.toFixed(2)} no dia
+                        Pague R$ {sinalValue.toFixed(2)} via PIX agora e R$ {restanteValue.toFixed(2)} no dia
+                      </p>
+                      <p className="text-xs text-primary mt-1 font-medium">
+                        💰 Sem taxas adicionais
                       </p>
                     </div>
                     <span className="font-semibold text-primary">R$ {sinalValue.toFixed(2)}</span>
@@ -175,11 +195,14 @@ const Payment = () => {
                     <RadioGroupItem value="total" id="total" />
                     <div className="flex-1">
                       <div className="flex items-center gap-2">
-                        <CreditCard className="h-4 w-4 text-primary" />
-                        <span className="font-medium">Pagar Total</span>
+                        <QrCode className="h-4 w-4 text-primary" />
+                        <span className="font-medium">Pagar Total - PIX</span>
                       </div>
                       <p className="text-sm text-muted-foreground mt-1">
-                        Pague o valor integral agora
+                        Pague o valor integral agora via PIX
+                      </p>
+                      <p className="text-xs text-primary mt-1 font-medium">
+                        💰 Sem taxas adicionais
                       </p>
                     </div>
                     <span className="font-semibold text-primary">R$ {totalValue.toFixed(2)}</span>
@@ -196,6 +219,17 @@ const Payment = () => {
                 </p>
               </div>
 
+              {/* Aviso sobre método de pagamento */}
+              <div className="bg-primary/10 border border-primary/20 rounded-lg p-4 mb-6">
+                <p className="text-sm text-primary font-medium flex items-center gap-2">
+                  <QrCode className="h-4 w-4" />
+                  Pagamento via PIX - Sem taxas adicionais
+                </p>
+                <p className="text-xs text-muted-foreground mt-1">
+                  Você receberá um QR Code para pagamento instantâneo via PIX
+                </p>
+              </div>
+
               <Button
                 className="w-full"
                 size="lg"
@@ -209,14 +243,14 @@ const Payment = () => {
                   </>
                 ) : (
                   <>
-                    <CreditCard className="h-4 w-4 mr-2" />
-                    Pagar R$ {paymentType === 'sinal' ? sinalValue.toFixed(2) : totalValue.toFixed(2)}
+                    <QrCode className="h-4 w-4 mr-2" />
+                    Pagar R$ {amount.toFixed(2)} via PIX
                   </>
                 )}
               </Button>
 
               <p className="text-xs text-center text-muted-foreground mt-4">
-                Pagamento seguro processado por Stripe
+                Pagamento seguro via PIX - Sem taxas adicionais
               </p>
             </CardContent>
           </Card>

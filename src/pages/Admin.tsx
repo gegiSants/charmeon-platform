@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import Header from '@/components/Header';
 import Footer from '@/components/Footer';
 import { Button } from '@/components/ui/button';
@@ -7,35 +7,363 @@ import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter } from '@/components/ui/dialog';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { professionals, services, appointments } from '@/data/mockData';
-import { Plus, Users, Scissors, Calendar, List, Phone, Clock, Trash2, Edit } from 'lucide-react';
+import { Badge } from '@/components/ui/badge';
+import { useProfessionals, useServices } from '@/hooks/useAppointments';
+import { supabase } from '@/integrations/supabase/client';
+import { Plus, Users, Scissors, Calendar, List, Phone, Clock, Trash2, Edit, Loader2, CheckCircle, XCircle, DollarSign } from 'lucide-react';
 import { toast } from 'sonner';
+import { format } from 'date-fns';
+import { ptBR } from 'date-fns/locale';
+
+interface Appointment {
+  id: string;
+  client_name: string;
+  client_phone: string;
+  professional_id: string;
+  service_id: string;
+  appointment_date: string;
+  appointment_time: string;
+  payment_type: 'sinal' | 'total';
+  amount_paid: number;
+  total_amount: number;
+  status: 'pending' | 'confirmed' | 'completed' | 'cancelled';
+  stripe_session_id: string | null;
+  stripe_payment_intent_id: string | null;
+  created_at: string;
+  professionals?: { name: string; phone: string };
+  services?: { name: string; price: number; duration: number };
+}
 
 const Admin = () => {
-  const [selectedProfessional, setSelectedProfessional] = useState(professionals[0]?.id || '');
+  const { professionals, loading: loadingProfessionals } = useProfessionals();
+  const [selectedProfessional, setSelectedProfessional] = useState<string>('');
+  const [appointments, setAppointments] = useState<Appointment[]>([]);
+  const [loadingAppointments, setLoadingAppointments] = useState(false);
+  const [services, setServices] = useState<any[]>([]);
+  const [loadingServices, setLoadingServices] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   
   // Estados para formulários
   const [newProfessional, setNewProfessional] = useState({ name: '', specialty: '', phone: '' });
   const [newService, setNewService] = useState({ name: '', price: '', duration: '' });
+  const [editingProfessional, setEditingProfessional] = useState<any>(null);
+  const [editingService, setEditingService] = useState<any>(null);
+  const [isDialogOpen, setIsDialogOpen] = useState(false);
+  const [isServiceDialogOpen, setIsServiceDialogOpen] = useState(false);
 
-  const handleAddProfessional = () => {
-    if (newProfessional.name && newProfessional.specialty) {
+  // Verificar configuração do Supabase
+  useEffect(() => {
+    const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
+    const supabaseKey = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
+    
+    if (!supabaseUrl || !supabaseKey) {
+      setError('Variáveis de ambiente não configuradas. Verifique o arquivo .env.local');
+      console.error('Supabase não configurado:', { supabaseUrl, supabaseKey });
+    }
+  }, []);
+
+  // Carregar serviços quando profissional é selecionado
+  useEffect(() => {
+    if (selectedProfessional) {
+      loadServices(selectedProfessional);
+    } else if (professionals.length > 0) {
+      setSelectedProfessional(professionals[0].id);
+    }
+  }, [selectedProfessional, professionals]);
+
+  // Carregar agendamentos
+  useEffect(() => {
+    if (!error) {
+      loadAppointments();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedProfessional]);
+
+  const loadServices = async (professionalId: string) => {
+    try {
+      setLoadingServices(true);
+      const { data, error: queryError } = await supabase
+        .from('services')
+        .select('*')
+        .eq('professional_id', professionalId)
+        .order('name');
+
+      if (queryError) {
+        console.error('Error loading services:', queryError);
+        toast.error(`Erro ao carregar serviços: ${queryError.message}`);
+        setServices([]);
+      } else {
+        setServices(data || []);
+      }
+    } catch (err: any) {
+      console.error('Unexpected error loading services:', err);
+      toast.error('Erro inesperado ao carregar serviços');
+      setServices([]);
+    } finally {
+      setLoadingServices(false);
+    }
+  };
+
+  const loadAppointments = async () => {
+    try {
+      setLoadingAppointments(true);
+      setError(null);
+      
+      let query = supabase
+        .from('appointments')
+        .select(`
+          *,
+          professionals:professional_id (name, phone),
+          services:service_id (name, price, duration)
+        `)
+        .order('appointment_date', { ascending: true })
+        .order('appointment_time', { ascending: true });
+
+      if (selectedProfessional) {
+        query = query.eq('professional_id', selectedProfessional);
+      }
+
+      const { data, error: queryError } = await query;
+
+      if (queryError) {
+        console.error('Error loading appointments:', queryError);
+        setError(`Erro ao carregar agendamentos: ${queryError.message}`);
+        toast.error('Erro ao carregar agendamentos');
+        setAppointments([]);
+      } else {
+        setAppointments(data || []);
+      }
+    } catch (err: any) {
+      console.error('Unexpected error loading appointments:', err);
+      setError(`Erro inesperado: ${err?.message || 'Erro desconhecido'}`);
+      toast.error('Erro ao carregar agendamentos');
+      setAppointments([]);
+    } finally {
+      setLoadingAppointments(false);
+    }
+  };
+
+  const handleAddProfessional = async () => {
+    if (!newProfessional.name || !newProfessional.specialty || !newProfessional.phone) {
+      toast.error('Preencha todos os campos obrigatórios');
+      return;
+    }
+
+    const { error } = await supabase
+      .from('professionals')
+      .insert({
+        name: newProfessional.name,
+        specialty: newProfessional.specialty,
+        phone: newProfessional.phone,
+      });
+
+    if (error) {
+      console.error('Error adding professional:', error);
+      toast.error('Erro ao adicionar profissional');
+    } else {
       toast.success(`Profissional "${newProfessional.name}" adicionada!`);
       setNewProfessional({ name: '', specialty: '', phone: '' });
+      setIsDialogOpen(false);
+      window.location.reload(); // Recarregar para atualizar lista
     }
   };
 
-  const handleAddService = () => {
-    if (newService.name && newService.price && newService.duration) {
+  const handleUpdateProfessional = async () => {
+    if (!editingProfessional) return;
+
+    const { error } = await supabase
+      .from('professionals')
+      .update({
+        name: editingProfessional.name,
+        specialty: editingProfessional.specialty,
+        phone: editingProfessional.phone,
+      })
+      .eq('id', editingProfessional.id);
+
+    if (error) {
+      console.error('Error updating professional:', error);
+      toast.error('Erro ao atualizar profissional');
+    } else {
+      toast.success('Profissional atualizada!');
+      setEditingProfessional(null);
+      window.location.reload();
+    }
+  };
+
+  const handleDeleteProfessional = async (id: string) => {
+    if (!confirm('Tem certeza que deseja excluir esta profissional?')) return;
+
+    const { error } = await supabase
+      .from('professionals')
+      .delete()
+      .eq('id', id);
+
+    if (error) {
+      console.error('Error deleting professional:', error);
+      toast.error('Erro ao excluir profissional');
+    } else {
+      toast.success('Profissional excluída!');
+      window.location.reload();
+    }
+  };
+
+  const handleAddService = async () => {
+    if (!selectedProfessional || !newService.name || !newService.price || !newService.duration) {
+      toast.error('Preencha todos os campos obrigatórios');
+      return;
+    }
+
+    const { error } = await supabase
+      .from('services')
+      .insert({
+        professional_id: selectedProfessional,
+        name: newService.name,
+        price: parseFloat(newService.price),
+        duration: parseInt(newService.duration),
+      });
+
+    if (error) {
+      console.error('Error adding service:', error);
+      toast.error('Erro ao adicionar serviço');
+    } else {
       toast.success(`Serviço "${newService.name}" adicionado!`);
       setNewService({ name: '', price: '', duration: '' });
+      setIsServiceDialogOpen(false);
+      loadServices(selectedProfessional);
     }
   };
 
-  const filteredServices = services.filter(s => s.professionalId === selectedProfessional);
-  const filteredAppointments = appointments.filter(a => a.professionalId === selectedProfessional);
+  const handleUpdateService = async () => {
+    if (!editingService) return;
+
+    const { error } = await supabase
+      .from('services')
+      .update({
+        name: editingService.name,
+        price: parseFloat(editingService.price),
+        duration: parseInt(editingService.duration),
+      })
+      .eq('id', editingService.id);
+
+    if (error) {
+      console.error('Error updating service:', error);
+      toast.error('Erro ao atualizar serviço');
+    } else {
+      toast.success('Serviço atualizado!');
+      setEditingService(null);
+      loadServices(selectedProfessional);
+    }
+  };
+
+  const handleDeleteService = async (id: string) => {
+    if (!confirm('Tem certeza que deseja excluir este serviço?')) return;
+
+    const { error } = await supabase
+      .from('services')
+      .delete()
+      .eq('id', id);
+
+    if (error) {
+      console.error('Error deleting service:', error);
+      toast.error('Erro ao excluir serviço');
+    } else {
+      toast.success('Serviço excluído!');
+      loadServices(selectedProfessional);
+    }
+  };
+
+  const handleUpdateAppointmentStatus = async (id: string, newStatus: string) => {
+    const { error } = await supabase
+      .from('appointments')
+      .update({ status: newStatus })
+      .eq('id', id);
+
+    if (error) {
+      console.error('Error updating appointment:', error);
+      toast.error('Erro ao atualizar agendamento');
+    } else {
+      toast.success('Status atualizado!');
+      loadAppointments();
+    }
+  };
+
+  const getStatusBadge = (status: string) => {
+    const statusConfig = {
+      pending: { label: 'Pendente', className: 'bg-yellow-100 text-yellow-800' },
+      confirmed: { label: 'Confirmado', className: 'bg-green-100 text-green-800' },
+      completed: { label: 'Concluído', className: 'bg-blue-100 text-blue-800' },
+      cancelled: { label: 'Cancelado', className: 'bg-red-100 text-red-800' },
+    };
+
+    const config = statusConfig[status as keyof typeof statusConfig] || statusConfig.pending;
+    return (
+      <Badge className={config.className}>
+        {config.label}
+      </Badge>
+    );
+  };
+
+  const filteredAppointments = selectedProfessional
+    ? appointments.filter(a => a.professional_id === selectedProfessional)
+    : appointments;
+
+  const uniqueClients = Array.from(
+    new Map(
+      appointments.map(apt => [apt.client_phone, { name: apt.client_name, phone: apt.client_phone }])
+    ).values()
+  );
+
+  // Mostrar loading inicial
+  if (loadingProfessionals && professionals.length === 0) {
+    return (
+      <div className="min-h-screen bg-background">
+        <Header />
+        <main className="container mx-auto px-4 py-8">
+          <div className="flex items-center justify-center min-h-[60vh]">
+            <div className="text-center">
+              <Loader2 className="h-12 w-12 animate-spin text-primary mx-auto mb-4" />
+              <p className="text-muted-foreground">Carregando área administrativa...</p>
+            </div>
+          </div>
+        </main>
+        <Footer />
+      </div>
+    );
+  }
+
+  // Mostrar erro se houver
+  if (error && !loadingAppointments && !loadingProfessionals) {
+    return (
+      <div className="min-h-screen bg-background">
+        <Header />
+        <main className="container mx-auto px-4 py-8">
+          <Card className="max-w-2xl mx-auto">
+            <CardHeader>
+              <CardTitle className="text-destructive">Erro ao Carregar Admin</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="space-y-4">
+                <p className="text-muted-foreground">{error}</p>
+                <div className="bg-muted p-4 rounded-lg">
+                  <p className="text-sm font-semibold mb-2">Possíveis soluções:</p>
+                  <ul className="text-sm text-muted-foreground space-y-1 list-disc list-inside">
+                    <li>Verifique se o arquivo .env.local está configurado corretamente</li>
+                    <li>Certifique-se de que executou o script setup.sql no Supabase</li>
+                    <li>Verifique se as tabelas foram criadas no Supabase</li>
+                    <li>Reinicie o servidor após alterar variáveis de ambiente</li>
+                  </ul>
+                </div>
+                <Button onClick={() => window.location.reload()}>Tentar Novamente</Button>
+              </div>
+            </CardContent>
+          </Card>
+        </main>
+        <Footer />
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-background">
@@ -49,8 +377,12 @@ const Admin = () => {
           <p className="text-muted-foreground">Gerencie profissionais, serviços e agendamentos</p>
         </div>
 
-        <Tabs defaultValue="professionals" className="space-y-6">
+        <Tabs defaultValue="schedule" className="space-y-6">
           <TabsList className="grid w-full grid-cols-4 lg:w-auto lg:inline-flex">
+            <TabsTrigger value="schedule" className="gap-2">
+              <Calendar className="h-4 w-4 hidden sm:inline" />
+              Agenda
+            </TabsTrigger>
             <TabsTrigger value="professionals" className="gap-2">
               <Users className="h-4 w-4 hidden sm:inline" />
               Profissionais
@@ -59,22 +391,148 @@ const Admin = () => {
               <Scissors className="h-4 w-4 hidden sm:inline" />
               Serviços
             </TabsTrigger>
-            <TabsTrigger value="schedule" className="gap-2">
-              <Calendar className="h-4 w-4 hidden sm:inline" />
-              Agenda
-            </TabsTrigger>
             <TabsTrigger value="clients" className="gap-2">
               <List className="h-4 w-4 hidden sm:inline" />
               Clientes
             </TabsTrigger>
           </TabsList>
 
+          {/* Tab: Agenda */}
+          <TabsContent value="schedule">
+            <Card>
+              <CardHeader className="flex flex-row items-center justify-between flex-wrap gap-4">
+                <CardTitle className="font-serif">Agenda</CardTitle>
+                <div className="flex gap-2">
+                  <Select value={selectedProfessional} onValueChange={setSelectedProfessional}>
+                    <SelectTrigger className="w-[200px]">
+                      <SelectValue placeholder="Todas as profissionais" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="">Todas as profissionais</SelectItem>
+                      {professionals.map((pro) => (
+                        <SelectItem key={pro.id} value={pro.id}>{pro.name}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <Button onClick={loadAppointments} variant="outline" size="sm">
+                    Atualizar
+                  </Button>
+                </div>
+              </CardHeader>
+              <CardContent>
+                {loadingAppointments ? (
+                  <div className="flex justify-center py-8">
+                    <Loader2 className="h-8 w-8 animate-spin text-primary" />
+                  </div>
+                ) : (
+                  <div className="overflow-x-auto">
+                    <Table>
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead>Data</TableHead>
+                          <TableHead>Horário</TableHead>
+                          <TableHead>Cliente</TableHead>
+                          <TableHead>Serviço</TableHead>
+                          <TableHead>Pagamento</TableHead>
+                          <TableHead>Status</TableHead>
+                          <TableHead>Ações</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {filteredAppointments.length === 0 ? (
+                          <TableRow>
+                            <TableCell colSpan={7} className="text-center py-8 text-muted-foreground">
+                              Nenhum agendamento encontrado
+                            </TableCell>
+                          </TableRow>
+                        ) : (
+                          filteredAppointments.map((apt) => {
+                            const service = apt.services;
+                            const professional = apt.professionals;
+                            const restante = apt.total_amount - apt.amount_paid;
+                            
+                            return (
+                              <TableRow key={apt.id}>
+                                <TableCell>
+                                  {format(new Date(apt.appointment_date), "dd/MM/yyyy", { locale: ptBR })}
+                                </TableCell>
+                                <TableCell>{apt.appointment_time}</TableCell>
+                                <TableCell>
+                                  <div>
+                                    <p className="font-medium">{apt.client_name}</p>
+                                    <a
+                                      href={`https://wa.me/55${apt.client_phone.replace(/\D/g, '')}`}
+                                      target="_blank"
+                                      rel="noopener noreferrer"
+                                      className="text-xs text-primary hover:underline flex items-center gap-1"
+                                    >
+                                      <Phone className="h-3 w-3" />
+                                      {apt.client_phone}
+                                    </a>
+                                  </div>
+                                </TableCell>
+                                <TableCell>
+                                  <div>
+                                    <p className="font-medium">{service?.name || 'N/A'}</p>
+                                    <p className="text-xs text-muted-foreground">
+                                      {professional?.name || 'N/A'}
+                                    </p>
+                                  </div>
+                                </TableCell>
+                                <TableCell>
+                                  <div className="text-sm">
+                                    <div className="flex items-center gap-1">
+                                      <DollarSign className="h-3 w-3" />
+                                      <span>Pago: R$ {Number(apt.amount_paid).toFixed(2)}</span>
+                                    </div>
+                                    <div className="text-xs text-muted-foreground">
+                                      Total: R$ {Number(apt.total_amount).toFixed(2)}
+                                    </div>
+                                    {apt.payment_type === 'sinal' && restante > 0 && (
+                                      <div className="text-xs text-orange-600">
+                                        Restante: R$ {restante.toFixed(2)}
+                                      </div>
+                                    )}
+                                    <div className="text-xs text-muted-foreground mt-1">
+                                      {apt.payment_type === 'sinal' ? 'Sinal (PIX)' : 'Total (Cartão)'}
+                                    </div>
+                                  </div>
+                                </TableCell>
+                                <TableCell>{getStatusBadge(apt.status)}</TableCell>
+                                <TableCell>
+                                  <Select
+                                    value={apt.status}
+                                    onValueChange={(value) => handleUpdateAppointmentStatus(apt.id, value)}
+                                  >
+                                    <SelectTrigger className="w-[140px]">
+                                      <SelectValue />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                      <SelectItem value="pending">Pendente</SelectItem>
+                                      <SelectItem value="confirmed">Confirmado</SelectItem>
+                                      <SelectItem value="completed">Concluído</SelectItem>
+                                      <SelectItem value="cancelled">Cancelado</SelectItem>
+                                    </SelectContent>
+                                  </Select>
+                                </TableCell>
+                              </TableRow>
+                            );
+                          })
+                        )}
+                      </TableBody>
+                    </Table>
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          </TabsContent>
+
           {/* Tab: Profissionais */}
           <TabsContent value="professionals">
             <Card>
               <CardHeader className="flex flex-row items-center justify-between">
                 <CardTitle className="font-serif">Profissionais Cadastradas</CardTitle>
-                <Dialog>
+                <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
                   <DialogTrigger asChild>
                     <Button size="sm" className="gap-2">
                       <Plus className="h-4 w-4" />
@@ -83,78 +541,122 @@ const Admin = () => {
                   </DialogTrigger>
                   <DialogContent>
                     <DialogHeader>
-                      <DialogTitle>Nova Profissional</DialogTitle>
+                      <DialogTitle>
+                        {editingProfessional ? 'Editar Profissional' : 'Nova Profissional'}
+                      </DialogTitle>
                     </DialogHeader>
                     <div className="space-y-4 py-4">
                       <div>
-                        <Label htmlFor="pro-name">Nome</Label>
+                        <Label htmlFor="pro-name">Nome *</Label>
                         <Input
                           id="pro-name"
-                          value={newProfessional.name}
-                          onChange={(e) => setNewProfessional({ ...newProfessional, name: e.target.value })}
+                          value={editingProfessional?.name || newProfessional.name}
+                          onChange={(e) => 
+                            editingProfessional
+                              ? setEditingProfessional({ ...editingProfessional, name: e.target.value })
+                              : setNewProfessional({ ...newProfessional, name: e.target.value })
+                          }
                           placeholder="Nome da profissional"
                         />
                       </div>
                       <div>
-                        <Label htmlFor="pro-specialty">Especialidade</Label>
+                        <Label htmlFor="pro-specialty">Especialidade *</Label>
                         <Input
                           id="pro-specialty"
-                          value={newProfessional.specialty}
-                          onChange={(e) => setNewProfessional({ ...newProfessional, specialty: e.target.value })}
+                          value={editingProfessional?.specialty || newProfessional.specialty}
+                          onChange={(e) => 
+                            editingProfessional
+                              ? setEditingProfessional({ ...editingProfessional, specialty: e.target.value })
+                              : setNewProfessional({ ...newProfessional, specialty: e.target.value })
+                          }
                           placeholder="Ex: Especialista em Cílios"
                         />
                       </div>
                       <div>
-                        <Label htmlFor="pro-phone">Telefone</Label>
+                        <Label htmlFor="pro-phone">Telefone *</Label>
                         <Input
                           id="pro-phone"
-                          value={newProfessional.phone}
-                          onChange={(e) => setNewProfessional({ ...newProfessional, phone: e.target.value })}
+                          value={editingProfessional?.phone || newProfessional.phone}
+                          onChange={(e) => 
+                            editingProfessional
+                              ? setEditingProfessional({ ...editingProfessional, phone: e.target.value })
+                              : setNewProfessional({ ...newProfessional, phone: e.target.value })
+                          }
                           placeholder="(11) 99999-9999"
                         />
                       </div>
-                      <div>
-                        <Label>Foto</Label>
-                        <Input type="file" accept="image/*" className="mt-1" />
-                      </div>
-                      <Button onClick={handleAddProfessional} className="w-full">Salvar</Button>
+                      <DialogFooter>
+                        <Button
+                          variant="outline"
+                          onClick={() => {
+                            setIsDialogOpen(false);
+                            setEditingProfessional(null);
+                            setNewProfessional({ name: '', specialty: '', phone: '' });
+                          }}
+                        >
+                          Cancelar
+                        </Button>
+                        <Button
+                          onClick={editingProfessional ? handleUpdateProfessional : handleAddProfessional}
+                        >
+                          {editingProfessional ? 'Atualizar' : 'Salvar'}
+                        </Button>
+                      </DialogFooter>
                     </div>
                   </DialogContent>
                 </Dialog>
               </CardHeader>
               <CardContent>
-                <div className="space-y-4">
-                  {professionals.map((pro) => (
-                    <div
-                      key={pro.id}
-                      className="flex items-center justify-between p-4 rounded-lg border border-border"
-                    >
-                      <div className="flex items-center gap-4">
-                        <img
-                          src={pro.photo}
-                          alt={pro.name}
-                          className="w-12 h-12 rounded-full object-cover"
-                        />
-                        <div>
-                          <h4 className="font-medium">{pro.name}</h4>
-                          <p className="text-sm text-muted-foreground">{pro.specialty}</p>
-                          <p className="text-xs text-muted-foreground flex items-center gap-1">
-                            <Phone className="h-3 w-3" />
-                            {pro.phone}
-                          </p>
+                {loadingProfessionals ? (
+                  <div className="flex justify-center py-8">
+                    <Loader2 className="h-8 w-8 animate-spin text-primary" />
+                  </div>
+                ) : (
+                  <div className="space-y-4">
+                    {professionals.map((pro) => (
+                      <div
+                        key={pro.id}
+                        className="flex items-center justify-between p-4 rounded-lg border border-border"
+                      >
+                        <div className="flex items-center gap-4">
+                          <img
+                            src={pro.photo_url || 'https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=400&h=400&fit=crop&crop=face'}
+                            alt={pro.name}
+                            className="w-12 h-12 rounded-full object-cover"
+                          />
+                          <div>
+                            <h4 className="font-medium">{pro.name}</h4>
+                            <p className="text-sm text-muted-foreground">{pro.specialty}</p>
+                            <p className="text-xs text-muted-foreground flex items-center gap-1">
+                              <Phone className="h-3 w-3" />
+                              {pro.phone}
+                            </p>
+                          </div>
+                        </div>
+                        <div className="flex gap-2">
+                          <Button
+                            variant="outline"
+                            size="icon"
+                            onClick={() => {
+                              setEditingProfessional(pro);
+                              setIsDialogOpen(true);
+                            }}
+                          >
+                            <Edit className="h-4 w-4" />
+                          </Button>
+                          <Button
+                            variant="outline"
+                            size="icon"
+                            className="text-destructive"
+                            onClick={() => handleDeleteProfessional(pro.id)}
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </Button>
                         </div>
                       </div>
-                      <div className="flex gap-2">
-                        <Button variant="outline" size="icon">
-                          <Edit className="h-4 w-4" />
-                        </Button>
-                        <Button variant="outline" size="icon" className="text-destructive">
-                          <Trash2 className="h-4 w-4" />
-                        </Button>
-                      </div>
-                    </div>
-                  ))}
-                </div>
+                    ))}
+                  </div>
+                )}
               </CardContent>
             </Card>
           </TabsContent>
@@ -175,7 +677,7 @@ const Admin = () => {
                       ))}
                     </SelectContent>
                   </Select>
-                  <Dialog>
+                  <Dialog open={isServiceDialogOpen} onOpenChange={setIsServiceDialogOpen}>
                     <DialogTrigger asChild>
                       <Button size="sm" className="gap-2">
                         <Plus className="h-4 w-4" />
@@ -184,146 +686,136 @@ const Admin = () => {
                     </DialogTrigger>
                     <DialogContent>
                       <DialogHeader>
-                        <DialogTitle>Novo Serviço</DialogTitle>
+                        <DialogTitle>
+                          {editingService ? 'Editar Serviço' : 'Novo Serviço'}
+                        </DialogTitle>
                       </DialogHeader>
                       <div className="space-y-4 py-4">
                         <div>
-                          <Label htmlFor="service-name">Nome do Serviço</Label>
+                          <Label htmlFor="service-name">Nome do Serviço *</Label>
                           <Input
                             id="service-name"
-                            value={newService.name}
-                            onChange={(e) => setNewService({ ...newService, name: e.target.value })}
+                            value={editingService?.name || newService.name}
+                            onChange={(e) => 
+                              editingService
+                                ? setEditingService({ ...editingService, name: e.target.value })
+                                : setNewService({ ...newService, name: e.target.value })
+                            }
                             placeholder="Ex: Alongamento de Cílios"
                           />
                         </div>
                         <div>
-                          <Label htmlFor="service-price">Valor (R$)</Label>
+                          <Label htmlFor="service-price">Valor (R$) *</Label>
                           <Input
                             id="service-price"
                             type="number"
-                            value={newService.price}
-                            onChange={(e) => setNewService({ ...newService, price: e.target.value })}
+                            step="0.01"
+                            value={editingService?.price || newService.price}
+                            onChange={(e) => 
+                              editingService
+                                ? setEditingService({ ...editingService, price: e.target.value })
+                                : setNewService({ ...newService, price: e.target.value })
+                            }
                             placeholder="150.00"
                           />
                         </div>
                         <div>
-                          <Label htmlFor="service-duration">Duração (minutos)</Label>
+                          <Label htmlFor="service-duration">Duração (minutos) *</Label>
                           <Input
                             id="service-duration"
                             type="number"
-                            value={newService.duration}
-                            onChange={(e) => setNewService({ ...newService, duration: e.target.value })}
+                            value={editingService?.duration || newService.duration}
+                            onChange={(e) => 
+                              editingService
+                                ? setEditingService({ ...editingService, duration: e.target.value })
+                                : setNewService({ ...newService, duration: e.target.value })
+                            }
                             placeholder="90"
                           />
                         </div>
-                        <div>
-                          <Label>Foto do Serviço</Label>
-                          <Input type="file" accept="image/*" className="mt-1" />
-                        </div>
-                        <Button onClick={handleAddService} className="w-full">Salvar</Button>
+                        <DialogFooter>
+                          <Button
+                            variant="outline"
+                            onClick={() => {
+                              setIsServiceDialogOpen(false);
+                              setEditingService(null);
+                              setNewService({ name: '', price: '', duration: '' });
+                            }}
+                          >
+                            Cancelar
+                          </Button>
+                          <Button
+                            onClick={editingService ? handleUpdateService : handleAddService}
+                          >
+                            {editingService ? 'Atualizar' : 'Salvar'}
+                          </Button>
+                        </DialogFooter>
                       </div>
                     </DialogContent>
                   </Dialog>
                 </div>
               </CardHeader>
               <CardContent>
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>Serviço</TableHead>
-                      <TableHead>Duração</TableHead>
-                      <TableHead>Valor</TableHead>
-                      <TableHead className="text-right">Ações</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {filteredServices.map((service) => (
-                      <TableRow key={service.id}>
-                        <TableCell className="font-medium">{service.name}</TableCell>
-                        <TableCell>
-                          <span className="flex items-center gap-1">
-                            <Clock className="h-3 w-3" />
-                            {service.duration} min
-                          </span>
-                        </TableCell>
-                        <TableCell>R$ {service.price.toFixed(2)}</TableCell>
-                        <TableCell className="text-right">
-                          <div className="flex justify-end gap-2">
-                            <Button variant="outline" size="icon">
-                              <Edit className="h-4 w-4" />
-                            </Button>
-                            <Button variant="outline" size="icon" className="text-destructive">
-                              <Trash2 className="h-4 w-4" />
-                            </Button>
-                          </div>
-                        </TableCell>
+                {loadingServices ? (
+                  <div className="flex justify-center py-8">
+                    <Loader2 className="h-8 w-8 animate-spin text-primary" />
+                  </div>
+                ) : (
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>Serviço</TableHead>
+                        <TableHead>Duração</TableHead>
+                        <TableHead>Valor</TableHead>
+                        <TableHead className="text-right">Ações</TableHead>
                       </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
-              </CardContent>
-            </Card>
-          </TabsContent>
-
-          {/* Tab: Agenda */}
-          <TabsContent value="schedule">
-            <Card>
-              <CardHeader className="flex flex-row items-center justify-between flex-wrap gap-4">
-                <CardTitle className="font-serif">Agenda</CardTitle>
-                <Select value={selectedProfessional} onValueChange={setSelectedProfessional}>
-                  <SelectTrigger className="w-[180px]">
-                    <SelectValue placeholder="Profissional" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {professionals.map((pro) => (
-                      <SelectItem key={pro.id} value={pro.id}>{pro.name}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </CardHeader>
-              <CardContent>
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>Data</TableHead>
-                      <TableHead>Horário</TableHead>
-                      <TableHead>Cliente</TableHead>
-                      <TableHead>Serviço</TableHead>
-                      <TableHead>Status</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {filteredAppointments.map((apt) => {
-                      const service = services.find(s => s.id === apt.serviceId);
-                      return (
-                        <TableRow key={apt.id}>
-                          <TableCell>{apt.date}</TableCell>
-                          <TableCell>{apt.time}</TableCell>
-                          <TableCell>
-                            <div>
-                              <p className="font-medium">{apt.clientName}</p>
-                              <p className="text-xs text-muted-foreground">{apt.clientPhone}</p>
-                            </div>
-                          </TableCell>
-                          <TableCell>{service?.name}</TableCell>
-                          <TableCell>
-                            <span
-                              className={`px-2 py-1 rounded-full text-xs font-medium ${
-                                apt.status === 'confirmed'
-                                  ? 'bg-green-100 text-green-800'
-                                  : apt.status === 'pending'
-                                  ? 'bg-yellow-100 text-yellow-800'
-                                  : 'bg-muted text-muted-foreground'
-                              }`}
-                            >
-                              {apt.status === 'confirmed' ? 'Confirmado' : apt.status === 'pending' ? 'Pendente' : 'Concluído'}
-                            </span>
+                    </TableHeader>
+                    <TableBody>
+                      {services.length === 0 ? (
+                        <TableRow>
+                          <TableCell colSpan={4} className="text-center py-8 text-muted-foreground">
+                            {selectedProfessional ? 'Nenhum serviço encontrado' : 'Selecione uma profissional'}
                           </TableCell>
                         </TableRow>
-                      );
-                    })}
-                  </TableBody>
-                </Table>
+                      ) : (
+                        services.map((service) => (
+                          <TableRow key={service.id}>
+                            <TableCell className="font-medium">{service.name}</TableCell>
+                            <TableCell>
+                              <span className="flex items-center gap-1">
+                                <Clock className="h-3 w-3" />
+                                {service.duration} min
+                              </span>
+                            </TableCell>
+                            <TableCell>R$ {Number(service.price).toFixed(2)}</TableCell>
+                            <TableCell className="text-right">
+                              <div className="flex justify-end gap-2">
+                                <Button
+                                  variant="outline"
+                                  size="icon"
+                                  onClick={() => {
+                                    setEditingService(service);
+                                    setIsServiceDialogOpen(true);
+                                  }}
+                                >
+                                  <Edit className="h-4 w-4" />
+                                </Button>
+                                <Button
+                                  variant="outline"
+                                  size="icon"
+                                  className="text-destructive"
+                                  onClick={() => handleDeleteService(service.id)}
+                                >
+                                  <Trash2 className="h-4 w-4" />
+                                </Button>
+                              </div>
+                            </TableCell>
+                          </TableRow>
+                        ))
+                      )}
+                    </TableBody>
+                  </Table>
+                )}
               </CardContent>
             </Card>
           </TabsContent>
@@ -340,32 +832,40 @@ const Admin = () => {
                     <TableRow>
                       <TableHead>Nome</TableHead>
                       <TableHead>Telefone</TableHead>
-                      <TableHead>Último Serviço</TableHead>
-                      <TableHead>Data</TableHead>
+                      <TableHead>Total de Agendamentos</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {appointments.map((apt) => {
-                      const service = services.find(s => s.id === apt.serviceId);
-                      return (
-                        <TableRow key={apt.id}>
-                          <TableCell className="font-medium">{apt.clientName}</TableCell>
-                          <TableCell>
-                            <a
-                              href={`https://wa.me/55${apt.clientPhone.replace(/\D/g, '')}`}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              className="text-primary hover:underline flex items-center gap-1"
-                            >
-                              <Phone className="h-3 w-3" />
-                              {apt.clientPhone}
-                            </a>
-                          </TableCell>
-                          <TableCell>{service?.name}</TableCell>
-                          <TableCell>{apt.date}</TableCell>
-                        </TableRow>
-                      );
-                    })}
+                    {uniqueClients.length === 0 ? (
+                      <TableRow>
+                        <TableCell colSpan={3} className="text-center py-8 text-muted-foreground">
+                          Nenhum cliente encontrado
+                        </TableCell>
+                      </TableRow>
+                    ) : (
+                      uniqueClients.map((client, index) => {
+                        const clientAppointments = appointments.filter(
+                          apt => apt.client_phone === client.phone
+                        );
+                        return (
+                          <TableRow key={index}>
+                            <TableCell className="font-medium">{client.name}</TableCell>
+                            <TableCell>
+                              <a
+                                href={`https://wa.me/55${client.phone.replace(/\D/g, '')}`}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="text-primary hover:underline flex items-center gap-1"
+                              >
+                                <Phone className="h-3 w-3" />
+                                {client.phone}
+                              </a>
+                            </TableCell>
+                            <TableCell>{clientAppointments.length}</TableCell>
+                          </TableRow>
+                        );
+                      })
+                    )}
                   </TableBody>
                 </Table>
               </CardContent>

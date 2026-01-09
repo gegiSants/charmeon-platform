@@ -5,13 +5,59 @@ import type { Database } from './types';
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
 const SUPABASE_PUBLISHABLE_KEY = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
 
+// Verificar se as variáveis estão configuradas
+if (!SUPABASE_URL || !SUPABASE_PUBLISHABLE_KEY) {
+  console.error('❌ Variáveis de ambiente do Supabase não configuradas!');
+  console.error('Verifique se o arquivo .env.local existe e contém:');
+  console.error('  VITE_SUPABASE_URL=...');
+  console.error('  VITE_SUPABASE_PUBLISHABLE_KEY=...');
+}
+
+// Verificar se localStorage está disponível
+let isLocalStorageAvailable = false;
+try {
+  const test = '__localStorage_test__';
+  localStorage.setItem(test, test);
+  localStorage.removeItem(test);
+  isLocalStorageAvailable = true;
+} catch (error) {
+  isLocalStorageAvailable = false;
+  console.warn('localStorage não disponível, sessões não serão persistidas');
+}
+
+// Storage adapter seguro que funciona mesmo quando localStorage está bloqueado
+const safeStorage = isLocalStorageAvailable ? localStorage : {
+  getItem: (): string | null => null,
+  setItem: (): void => {
+    // Não faz nada
+  },
+  removeItem: (): void => {
+    // Não faz nada
+  },
+  length: 0,
+  clear: (): void => {
+    // Não faz nada
+  },
+  key: (): string | null => null,
+};
+
 // Import the supabase client like this:
 // import { supabase } from "@/integrations/supabase/client";
 
-export const supabase = createClient<Database>(SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY, {
-  auth: {
-    storage: localStorage,
-    persistSession: true,
-    autoRefreshToken: true,
+export const supabase = createClient<Database>(
+  SUPABASE_URL || 'https://placeholder.supabase.co',
+  SUPABASE_PUBLISHABLE_KEY || 'placeholder-key',
+  {
+    auth: {
+      storage: safeStorage,
+      persistSession: isLocalStorageAvailable,
+      autoRefreshToken: isLocalStorageAvailable,
+      detectSessionInUrl: false,
+    },
+    global: {
+      headers: {
+        'apikey': SUPABASE_PUBLISHABLE_KEY || 'placeholder-key',
+      },
+    },
   }
-});
+);
