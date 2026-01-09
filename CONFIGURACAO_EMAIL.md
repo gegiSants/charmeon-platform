@@ -21,55 +21,86 @@ Este sistema envia emails automáticos de confirmação 1-2 dias antes dos agend
    - **SIM** → Status muda para `confirmed`
    - **NÃO** → Status muda para `cancelled` (pode ser reagendado)
 
-## Configuração do SendGrid (Gratuito)
+## Opções de Configuração (Todas Gratuitas)
 
-### 1. Criar Conta no SendGrid
+### Opção 1: Resend (RECOMENDADO - Mais Fácil) ⭐
 
-1. Acesse [https://sendgrid.com](https://sendgrid.com)
-2. Crie uma conta gratuita (permite enviar 100 emails/dia)
-3. Complete a verificação de identidade (necessário para ativar)
+**Vantagens:**
+- ✅ Muito fácil de configurar
+- ✅ 3.000 emails/mês grátis
+- ✅ Sem necessidade de verificar domínio inicialmente
+- ✅ API simples
 
-### 2. Criar API Key
+**Como configurar:**
 
-1. No dashboard do SendGrid, vá em **Settings** → **API Keys**
-2. Clique em **Create API Key**
-3. Dê um nome (ex: "Studio Ingrid Leandro")
-4. Selecione **Full Access** ou **Restricted Access** (com permissões de Mail Send)
-5. Copie a API Key (ela só aparece uma vez!)
+1. Acesse [https://resend.com](https://resend.com)
+2. Clique em "Sign Up" e crie uma conta (pode usar Google/GitHub)
+3. Vá em **API Keys** → **Create API Key**
+4. Dê um nome (ex: "Studio Ingrid Leandro")
+5. Copie a API Key
+6. Vá em **Domains** → **Add Domain** (ou use o domínio de teste que eles fornecem)
+7. No Supabase, adicione como Secrets:
+   ```
+   RESEND_API_KEY=sua_api_key_aqui
+   FROM_EMAIL=noreply@seudominio.com (ou use o domínio de teste deles)
+   FROM_NAME=Studio Ingrid Leandro
+   SITE_URL=https://seu-site.com
+   ```
 
-### 3. Verificar Domínio ou Email Remetente
+**Pronto!** É só isso. Muito mais simples que SendGrid.
 
-**Opção 1: Verificar Domínio (Recomendado)**
-1. Vá em **Settings** → **Sender Authentication**
-2. Clique em **Authenticate Your Domain**
-3. Siga as instruções para adicionar registros DNS
+---
 
-**Opção 2: Verificar Email Individual (Mais Rápido)**
-1. Vá em **Settings** → **Sender Authentication**
-2. Clique em **Verify a Single Sender**
-3. Preencha os dados e confirme o email
+### Opção 2: Gmail SMTP (Usa sua conta Gmail)
 
-### 4. Configurar Inbound Parse (Para Receber Respostas)
+**Vantagens:**
+- ✅ Todo mundo tem Gmail
+- ✅ 500 emails/dia grátis
+- ✅ Não precisa criar conta em outro serviço
 
-1. Vá em **Settings** → **Inbound Parse**
-2. Clique em **Add Host & URL**
-3. Configure:
-   - **Subdomain**: `mail` (ou outro de sua escolha)
-   - **Domain**: Seu domínio (ex: `studioingridleandro.com`)
-   - **Destination URL**: `https://seu-projeto.supabase.co/functions/v1/email-webhook`
-   - Marque **POST the raw, full MIME message**
-4. Adicione os registros DNS conforme instruções
+**Como configurar:**
 
-### 5. Configurar no Supabase
+1. Acesse sua conta Google: [https://myaccount.google.com](https://myaccount.google.com)
+2. Vá em **Segurança** → **Verificação em duas etapas** (precisa estar ativada)
+3. Vá em **Segurança** → **Senhas de app**
+4. Clique em **Selecionar app** → **Email**
+5. Clique em **Selecionar dispositivo** → **Outro (nome personalizado)**
+6. Digite "Studio Ingrid Leandro" e clique em **Gerar**
+7. Copie a senha gerada (16 caracteres)
+8. No Supabase, adicione como Secrets:
+   ```
+   SMTP_HOST=smtp.gmail.com
+   SMTP_PORT=587
+   SMTP_USER=seuemail@gmail.com
+   SMTP_PASSWORD=senha_de_app_gerada
+   FROM_EMAIL=seuemail@gmail.com
+   FROM_NAME=Studio Ingrid Leandro
+   SITE_URL=https://seu-site.com
+   ```
 
-No Supabase Dashboard, vá em **Edge Functions** → **Secrets** e adicione:
+**Nota:** Você precisará modificar a função para usar SMTP direto (mais complexo). Recomendo usar Resend.
 
-```
-SENDGRID_API_KEY=sua_api_key_aqui
-SENDGRID_FROM_EMAIL=noreply@seu-dominio.com
-SENDGRID_FROM_NAME=Studio Ingrid Leandro
-SITE_URL=https://seu-site.com
-```
+---
+
+### Opção 3: Mailgun (5.000 emails/mês grátis)
+
+1. Acesse [https://www.mailgun.com](https://www.mailgun.com)
+2. Crie uma conta
+3. Verifique seu domínio ou use o domínio de teste
+4. Copie a API Key
+5. Configure no Supabase (similar ao Resend)
+
+---
+
+### Opção 4: Amazon SES (62.000 emails/mês grátis no primeiro ano)
+
+Mais complexo, mas muito generoso no free tier. Requer conta AWS.
+
+---
+
+## Recomendação
+
+**Use Resend!** É a opção mais fácil e rápida de configurar. Leva menos de 5 minutos.
 
 ## Deploy das Funções
 
@@ -140,10 +171,6 @@ curl -X POST https://seu-projeto.supabase.co/functions/v1/send-email-confirmatio
   -d '{"appointmentId": "id-do-agendamento"}'
 ```
 
-### 2. Testar Webhook
-
-Envie um email de teste para o endereço configurado no Inbound Parse e verifique se o webhook recebe a mensagem.
-
 ## Fluxo Completo
 
 1. Cliente faz agendamento
@@ -159,28 +186,17 @@ Envie um email de teste para o endereço configurado no Inbound Parse e verifiqu
    - SIM → `confirmed`
    - NÃO → `cancelled`
 
-## Notas Importantes
-
-- **SendGrid Free Tier**: Permite 100 emails/dia gratuitamente
-- **Limites**: Após 100 emails/dia, você precisará de um plano pago
-- **Alternativas Gratuitas**: 
-  - Gmail API (até 500 emails/dia)
-  - Mailgun (5.000 emails/mês grátis)
-  - Amazon SES (62.000 emails/mês grátis no primeiro ano)
-
 ## Troubleshooting
 
 ### Emails não estão sendo enviados
 
-1. Verifique se a API Key do SendGrid está correta
-2. Verifique se o email remetente está verificado
+1. Verifique se a API Key está correta
+2. Verifique se o FROM_EMAIL está configurado
 3. Verifique os logs da função `send-email-confirmation` no Supabase
-4. Teste enviando um email manualmente via SendGrid
+4. Teste enviando um email manualmente
 
 ### Webhook não está recebendo emails
 
-1. Verifique se o Inbound Parse está configurado corretamente
-2. Verifique se os registros DNS estão corretos
-3. Verifique os logs da função `email-webhook` no Supabase
-4. Certifique-se de que o webhook está acessível publicamente
-
+1. Verifique se o webhook está configurado corretamente
+2. Verifique os logs da função `email-webhook` no Supabase
+3. Certifique-se de que o webhook está acessível publicamente
