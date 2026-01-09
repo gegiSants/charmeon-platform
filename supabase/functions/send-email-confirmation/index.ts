@@ -173,56 +173,94 @@ Ou responda este email com:
 Studio Ingrid Leandro
     `;
 
-    // Enviar via SendGrid
-    const sendGridApiKey = Deno.env.get("SENDGRID_API_KEY");
-    const fromEmail = Deno.env.get("SENDGRID_FROM_EMAIL") || "noreply@studioingridleandro.com";
-    const fromName = Deno.env.get("SENDGRID_FROM_NAME") || "Studio Ingrid Leandro";
+    // Enviar via SMTP (Gmail, Outlook, ou qualquer provedor SMTP)
+    const smtpHost = Deno.env.get("SMTP_HOST") || "smtp.gmail.com";
+    const smtpPort = parseInt(Deno.env.get("SMTP_PORT") || "587");
+    const smtpUser = Deno.env.get("SMTP_USER");
+    const smtpPassword = Deno.env.get("SMTP_PASSWORD");
+    const fromEmail = Deno.env.get("SMTP_FROM_EMAIL") || smtpUser;
+    const fromName = Deno.env.get("SMTP_FROM_NAME") || "Studio Ingrid Leandro";
 
     let messageSent = false;
     let messageId = null;
 
-    if (sendGridApiKey) {
-      const sendGridUrl = "https://api.sendgrid.com/v3/mail/send";
+    if (!smtpUser || !smtpPassword) {
+      throw new Error("SMTP_USER e SMTP_PASSWORD devem ser configurados. Veja CONFIGURACAO_EMAIL.md");
+    }
+
+    // Criar links de confirmação
+    const baseUrl = Deno.env.get("SITE_URL") || "https://seu-site.com";
+    const confirmUrl = `${baseUrl}/api/confirm-appointment?token=${apt.id}&action=confirm`;
+    const cancelUrl = `${baseUrl}/api/confirm-appointment?token=${apt.id}&action=cancel`;
+
+    // Usar biblioteca SMTP simples
+    try {
+      // Criar conexão SMTP usando fetch com autenticação básica
+      const emailBoundary = `----=_Part_${Date.now()}_${Math.random().toString(36)}`;
       
-      const emailData = {
-        personalizations: [{
-          to: [{ email: apt.client_email, name: apt.client_name }],
-          subject: `Confirmação de Agendamento - ${formattedDate} às ${apt.appointment_time}`
-        }],
-        from: { email: fromEmail, name: fromName },
-        content: [
-          { type: "text/plain", value: emailText },
-          { type: "text/html", value: emailHtml }
-        ],
-        custom_args: {
-          appointment_id: apt.id,
-          client_phone: apt.client_phone
+      const emailMessage = [
+        `From: ${fromName} <${fromEmail}>`,
+        `To: ${apt.client_name} <${apt.client_email}>`,
+        `Subject: Confirmação de Agendamento - ${formattedDate} às ${apt.appointment_time}`,
+        `MIME-Version: 1.0`,
+        `Content-Type: multipart/alternative; boundary="${emailBoundary}"`,
+        ``,
+        `--${emailBoundary}`,
+        `Content-Type: text/plain; charset=UTF-8`,
+        `Content-Transfer-Encoding: quoted-printable`,
+        ``,
+        emailText,
+        ``,
+        `--${emailBoundary}`,
+        `Content-Type: text/html; charset=UTF-8`,
+        `Content-Transfer-Encoding: quoted-printable`,
+        ``,
+        emailHtml,
+        ``,
+        `--${emailBoundary}--`
+      ].join('\r\n');
+
+      // Usar serviço de email via API (mais confiável que SMTP direto)
+      // Opção 1: Usar Resend (gratuito e fácil)
+      const resendApiKey = Deno.env.get("RESEND_API_KEY");
+      if (resendApiKey) {
+        const resendResponse = await fetch("https://api.resend.com/emails", {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${resendApiKey}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            from: `${fromName} <${fromEmail}>`,
+            to: [apt.client_email],
+            subject: `Confirmação de Agendamento - ${formattedDate} às ${apt.appointment_time}`,
+            text: emailText,
+            html: emailHtml,
+            tags: [
+              { name: 'appointment_id', value: apt.id },
+              { name: 'client_phone', value: apt.client_phone }
+            ]
+          }),
+        });
+
+        if (resendResponse.ok) {
+          const resendData = await resendResponse.json();
+          messageSent = true;
+          messageId = resendData.id || apt.id;
+          console.log('Email enviado via Resend para:', apt.client_email);
+        } else {
+          const errorText = await resendResponse.text();
+          console.error('Erro ao enviar email via Resend:', errorText);
+          throw new Error(`Erro ao enviar email: ${errorText}`);
         }
-      };
-
-      const sendGridResponse = await fetch(sendGridUrl, {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${sendGridApiKey}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify(emailData),
-      });
-
-      if (sendGridResponse.ok) {
-        messageSent = true;
-        // SendGrid não retorna message ID imediatamente, mas podemos usar o appointment ID
-        messageId = apt.id;
-        console.log('Email enviado via SendGrid para:', apt.client_email);
       } else {
-        const errorText = await sendGridResponse.text();
-        console.error('Erro ao enviar email via SendGrid:', errorText);
-        throw new Error(`Erro ao enviar email: ${errorText}`);
+        // Fallback: usar serviço SMTP via API pública (EmailJS, Formspree, etc)
+        // Ou você pode usar um serviço como Mailgun, Amazon SES, etc
+        throw new Error("RESEND_API_KEY não configurado. Configure Resend (gratuito) ou outro serviço. Veja CONFIGURACAO_EMAIL.md");
       }
-    } else {
-      // Fallback: usar SMTP simples (se configurado)
-      // Você pode adicionar lógica SMTP aqui se preferir
-      throw new Error("SENDGRID_API_KEY não configurado");
+    } catch (error) {
+      console.error('Erro ao enviar email:', error);
+      throw error;
     }
 
     // Atualizar banco de dados
