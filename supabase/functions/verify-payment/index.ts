@@ -29,51 +29,73 @@ serve(async (req) => {
       { auth: { persistSession: false } }
     );
 
-    const { sessionId, appointmentId } = await req.json();
-    logStep("Request data received", { sessionId, appointmentId });
+    const { sessionId, paymentIntentId, appointmentId } = await req.json();
+    logStep("Request data received", { sessionId, paymentIntentId, appointmentId });
 
-    if (!sessionId) {
-      throw new Error("Missing sessionId");
+    if (!sessionId && !paymentIntentId) {
+      throw new Error("Missing sessionId or paymentIntentId");
     }
 
     const stripe = new Stripe(stripeKey, { apiVersion: "2025-08-27.basil" });
     
-    // Retrieve the checkout session
-    const session = await stripe.checkout.sessions.retrieve(sessionId);
-    logStep("Session retrieved", { status: session.payment_status });
+    let paid = false;
+    let amount = 0;
+    let paymentId = '';
 
-    if (session.payment_status === 'paid') {
+    // Check if it's a PaymentIntent (PIX) or Checkout Session (Card)
+    if (paymentIntentId) {
+      // Verify PaymentIntent for PIX payments
+      logStep("Retrieving PaymentIntent", { paymentIntentId });
+      const paymentIntent = await stripe.paymentIntents.retrieve(paymentIntentId);
+      logStep("PaymentIntent retrieved", { status: paymentIntent.status });
+
+      if (paymentIntent.status === 'succeeded') {
+        paid = true;
+        amount = paymentIntent.amount / 100;
+        paymentId = paymentIntent.id;
+      }
+    } else if (sessionId) {
+      // Verify Checkout Session for card payments
+      logStep("Retrieving Checkout Session", { sessionId });
+      const session = await stripe.checkout.sessions.retrieve(sessionId);
+      logStep("Session retrieved", { status: session.payment_status });
+
+      if (session.payment_status === 'paid') {
+        paid = true;
+        amount = session.amount_total ? session.amount_total / 100 : 0;
+        paymentId = session.id;
+      }
+    }
+
+    if (paid && appointmentId) {
       // Update appointment status
-      if (appointmentId) {
-        const { error: updateError } = await supabaseClient
-          .from('appointments')
-          .update({ 
-            status: 'confirmed',
-            stripe_session_id: sessionId,
-            amount_paid: session.amount_total ? session.amount_total / 100 : 0
-          })
-          .eq('id', appointmentId);
+      const updateData: any = {
+        status: 'confirmed',
+        amount_paid: amount,
+      };
 
-        if (updateError) {
-          logStep("Error updating appointment", { error: updateError.message });
-        } else {
-          logStep("Appointment updated successfully");
-        }
+      if (paymentIntentId) {
+        updateData.stripe_payment_intent_id = paymentId;
+      } else if (sessionId) {
+        updateData.stripe_session_id = paymentId;
       }
 
-      return new Response(JSON.stringify({ 
-        success: true, 
-        paid: true,
-        amount: session.amount_total ? session.amount_total / 100 : 0
-      }), {
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-        status: 200,
-      });
+      const { error: updateError } = await supabaseClient
+        .from('appointments')
+        .update(updateData)
+        .eq('id', appointmentId);
+
+      if (updateError) {
+        logStep("Error updating appointment", { error: updateError.message });
+      } else {
+        logStep("Appointment updated successfully");
+      }
     }
 
     return new Response(JSON.stringify({ 
       success: true, 
-      paid: false 
+      paid,
+      amount
     }), {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
       status: 200,
