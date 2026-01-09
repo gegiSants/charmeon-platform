@@ -71,6 +71,16 @@ serve(async (req) => {
       });
     }
 
+    // Função para escapar HTML
+    const escapeHtml = (text: string): string => {
+      return String(text || '')
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#039;');
+    };
+
     // Formatar data
     const appointmentDate = new Date(apt.appointment_date);
     const formattedDate = appointmentDate.toLocaleDateString('pt-BR', {
@@ -85,9 +95,15 @@ serve(async (req) => {
     const confirmUrl = `${baseUrl}/api/confirm-appointment?token=${apt.id}&action=confirm`;
     const cancelUrl = `${baseUrl}/api/confirm-appointment?token=${apt.id}&action=cancel`;
 
+    // Escapar valores para HTML
+    const clientNameEscaped = escapeHtml(apt.client_name);
+    const serviceNameEscaped = escapeHtml(apt.services?.name || 'N/A');
+    const professionalNameEscaped = escapeHtml(apt.professionals?.name || 'N/A');
+    const formattedDateEscaped = escapeHtml(formattedDate);
+    const appointmentTimeEscaped = escapeHtml(apt.appointment_time);
+
     // Criar HTML do email
-    const emailHtml = `
-<!DOCTYPE html>
+    const emailHtml = `<!DOCTYPE html>
 <html>
 <head>
   <meta charset="utf-8">
@@ -110,15 +126,15 @@ serve(async (req) => {
       <p>Confirmação de Agendamento</p>
     </div>
     <div class="content">
-      <p>Olá <strong>${apt.client_name}</strong>! 👋</p>
+      <p>Olá <strong>${clientNameEscaped}</strong>! 👋</p>
       
       <p>Este é um lembrete do seu agendamento:</p>
       
       <div class="info-box">
-        <p><strong>📅 Data:</strong> ${formattedDate}</p>
-        <p><strong>🕐 Horário:</strong> ${apt.appointment_time}</p>
-        <p><strong>💅 Serviço:</strong> ${apt.services?.name || 'N/A'}</p>
-        <p><strong>👩‍💼 Profissional:</strong> ${apt.professionals?.name || 'N/A'}</p>
+        <p><strong>📅 Data:</strong> ${formattedDateEscaped}</p>
+        <p><strong>🕐 Horário:</strong> ${appointmentTimeEscaped}</p>
+        <p><strong>💅 Serviço:</strong> ${serviceNameEscaped}</p>
+        <p><strong>👩‍💼 Profissional:</strong> ${professionalNameEscaped}</p>
       </div>
 
       <p>Por favor, confirme se você poderá comparecer:</p>
@@ -145,12 +161,10 @@ serve(async (req) => {
     </div>
   </div>
 </body>
-</html>
-    `;
+</html>`;
 
     // Versão texto simples
-    const emailText = `
-Olá ${apt.client_name}!
+    const emailText = `Olá ${apt.client_name}!
 
 Este é um lembrete do seu agendamento no Studio Ingrid Leandro:
 
@@ -170,8 +184,7 @@ Ou responda este email com:
 
 ⚠️ Importante: Em caso de não comparecimento, o sinal não será ressarcido.
 
-Studio Ingrid Leandro
-    `;
+Studio Ingrid Leandro`;
 
     // Enviar via Resend (gratuito e fácil de configurar)
     const resendApiKey = Deno.env.get("RESEND_API_KEY");
