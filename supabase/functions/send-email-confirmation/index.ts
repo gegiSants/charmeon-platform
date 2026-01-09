@@ -199,8 +199,8 @@ Studio Ingrid Leandro
           text: emailText,
           html: emailHtml,
           tags: [
-            { name: 'appointment_id', value: apt.id },
-            { name: 'client_phone', value: apt.client_phone }
+            { name: 'appointment_id', value: apt.id.replace(/[^a-zA-Z0-9_-]/g, '') },
+            { name: 'client_phone', value: apt.client_phone.replace(/[^a-zA-Z0-9_-]/g, '') }
           ]
         }),
       });
