@@ -45,27 +45,16 @@ const PixPayment = () => {
       return;
     }
 
-    // Se temos código PIX direto, usar ele (prioridade)
-    if (bookingData.qrCode) {
-      setPixCode(bookingData.qrCode);
-      if (bookingData.qrCodeBase64) {
-        setQrCodeBase64(bookingData.qrCodeBase64);
-      }
+    // Se temos link de pagamento, usar diretamente
+    const link = bookingData.initPoint || bookingData.sandboxInitPoint;
+    if (link) {
+      setPaymentLink(link);
       setIsLoading(false);
       startPaymentPolling();
-    } 
-    // Se temos link de pagamento (fallback), usar ele
-    else if (bookingData.initPoint || bookingData.sandboxInitPoint) {
-      const link = bookingData.initPoint || bookingData.sandboxInitPoint;
-      setPaymentLink(link || '');
-      setIsLoading(false);
-      startPaymentPolling();
-    } 
-    // Se temos preferenceId, tentar buscar o link
-    else if (bookingData.preferenceId) {
+    } else if (bookingData.preferenceId) {
+      // Se temos preferenceId, tentar buscar o link
       fetchPaymentLink();
-    } 
-    else {
+    } else {
       toast.error('Dados de pagamento inválidos');
       setIsLoading(false);
     }
