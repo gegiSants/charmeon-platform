@@ -38,7 +38,7 @@ interface Appointment {
 
 const Admin = () => {
   const { professionals, loading: loadingProfessionals } = useProfessionals();
-  const [selectedProfessional, setSelectedProfessional] = useState<string>('');
+  const [selectedProfessional, setSelectedProfessional] = useState<string>('all');
   const [appointments, setAppointments] = useState<Appointment[]>([]);
   const [loadingAppointments, setLoadingAppointments] = useState(false);
   const [services, setServices] = useState<any[]>([]);
@@ -66,12 +66,10 @@ const Admin = () => {
 
   // Carregar serviços quando profissional é selecionado
   useEffect(() => {
-    if (selectedProfessional) {
+    if (selectedProfessional && selectedProfessional !== 'all') {
       loadServices(selectedProfessional);
-    } else if (professionals.length > 0) {
-      setSelectedProfessional(professionals[0].id);
     }
-  }, [selectedProfessional, professionals]);
+  }, [selectedProfessional]);
 
   // Carregar agendamentos
   useEffect(() => {
@@ -121,7 +119,7 @@ const Admin = () => {
         .order('appointment_date', { ascending: true })
         .order('appointment_time', { ascending: true });
 
-      if (selectedProfessional) {
+      if (selectedProfessional && selectedProfessional !== 'all') {
         query = query.eq('professional_id', selectedProfessional);
       }
 
@@ -210,8 +208,8 @@ const Admin = () => {
   };
 
   const handleAddService = async () => {
-    if (!selectedProfessional || !newService.name || !newService.price || !newService.duration) {
-      toast.error('Preencha todos os campos obrigatórios');
+    if (!selectedProfessional || selectedProfessional === 'all' || !newService.name || !newService.price || !newService.duration) {
+      toast.error('Selecione uma profissional e preencha todos os campos obrigatórios');
       return;
     }
 
@@ -305,7 +303,7 @@ const Admin = () => {
     );
   };
 
-  const filteredAppointments = selectedProfessional
+  const filteredAppointments = selectedProfessional && selectedProfessional !== 'all'
     ? appointments.filter(a => a.professional_id === selectedProfessional)
     : appointments;
 
@@ -408,7 +406,7 @@ const Admin = () => {
                       <SelectValue placeholder="Todas as profissionais" />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="">Todas as profissionais</SelectItem>
+                      <SelectItem value="all">Todas as profissionais</SelectItem>
                       {professionals.map((pro) => (
                         <SelectItem key={pro.id} value={pro.id}>{pro.name}</SelectItem>
                       ))}
@@ -774,7 +772,7 @@ const Admin = () => {
                       {services.length === 0 ? (
                         <TableRow>
                           <TableCell colSpan={4} className="text-center py-8 text-muted-foreground">
-                            {selectedProfessional ? 'Nenhum serviço encontrado' : 'Selecione uma profissional'}
+                            {selectedProfessional && selectedProfessional !== 'all' ? 'Nenhum serviço encontrado' : 'Selecione uma profissional'}
                           </TableCell>
                         </TableRow>
                       ) : (
