@@ -102,9 +102,10 @@ serve(async (req) => {
     }
 
     if (paid && appointmentId) {
-      // Atualizar status do agendamento
+      // Atualizar status do agendamento - manter como 'pending' até confirmação via WhatsApp
+      // O status será mudado para 'confirmed' quando o cliente confirmar via WhatsApp
       const updateData: any = {
-        status: 'confirmed',
+        status: 'pending', // Mantém como pending até confirmação do cliente
         amount_paid: amount,
       };
 
@@ -123,7 +124,7 @@ serve(async (req) => {
       if (updateError) {
         logStep("Error updating appointment", { error: updateError.message });
       } else {
-        logStep("Appointment updated successfully");
+        logStep("Appointment updated successfully - payment confirmed, awaiting WhatsApp confirmation");
       }
     }
 
@@ -146,5 +147,6 @@ serve(async (req) => {
     });
   }
 });
+
 
 
