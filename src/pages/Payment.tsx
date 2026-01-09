@@ -91,10 +91,12 @@ const Payment = () => {
 
       const data = await response.json();
 
-      // Verificar se temos link de pagamento (initPoint ou sandboxInitPoint)
+      // Aceitar tanto QR Code quanto link de pagamento
       const paymentLink = data.initPoint || data.sandboxInitPoint;
-      if (!paymentLink && !data.paymentId) {
-        throw new Error('Link de pagamento não foi gerado.');
+      const hasQrCode = data.qrCode || data.qrCodeBase64;
+      
+      if (!paymentLink && !hasQrCode && !data.paymentId) {
+        throw new Error('Dados de pagamento não foram gerados.');
       }
 
       navigate('/pagamento-pix', {
@@ -104,6 +106,9 @@ const Payment = () => {
           preferenceId: data.preferenceId || data.paymentId,
           initPoint: data.initPoint,
           sandboxInitPoint: data.sandboxInitPoint,
+          qrCode: data.qrCode,
+          qrCodeBase64: data.qrCodeBase64,
+          ticketUrl: data.ticketUrl,
           amount: amount,
           restante: paymentType === 'sinal' ? restanteValue : 0,
         },

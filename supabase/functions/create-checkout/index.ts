@@ -38,7 +38,7 @@ serve(async (req) => {
       ? `Sinal (30%) - ${serviceName} - ${professionalName}`
       : `Pagamento Total - ${serviceName} - ${professionalName}`;
 
-    // Gerar QR Code PIX direto
+    // SEMPRE tentar gerar QR Code PIX direto primeiro
     const idempotencyKey = crypto.randomUUID();
     
     const paymentData: {
@@ -84,7 +84,8 @@ serve(async (req) => {
       }
     }
 
-    const response = await fetch("https://api.mercadopago.com/v1/payments", {
+    // Tentar criar pagamento direto PIX (gera QR code)
+    const directPaymentResponse = await fetch("https://api.mercadopago.com/v1/payments", {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -94,23 +95,104 @@ serve(async (req) => {
       body: JSON.stringify(paymentData),
     });
 
-    if (!response.ok) {
-      const errorText = await response.text();
-      throw new Error(`Erro Mercado Pago: ${response.status} - ${errorText}`);
+    // Se funcionou, retornar QR code direto
+    if (directPaymentResponse.ok) {
+      const payment = await directPaymentResponse.json();
+      const pixData = payment.point_of_interaction?.transaction_data;
+
+      if (!pixData) {
+        throw new Error("QR Code PIX não foi gerado pelo Mercado Pago");
+      }
+
+      return new Response(JSON.stringify({ 
+        paymentId: payment.id,
+        preferenceId: payment.id,
+        qrCode: pixData.qr_code || pixData.qr_code_base64,
+        qrCodeBase64: pixData.qr_code_base64,
+        ticketUrl: pixData.ticket_url,
+        type: 'pix',
+        provider: 'mercadopago'
+      }), {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+        status: 200,
+      });
     }
 
-    const payment = await response.json();
-    const pixData = payment.point_of_interaction?.transaction_data;
+    // Se falhou, usar checkout hospedado (fallback para tokens de teste)
+    const preferenceData = {
+      items: [
+        {
+          title: paymentDescription,
+          quantity: 1,
+          unit_price: amount,
+        }
+      ],
+      payment_methods: {
+        excluded_payment_methods: [
+          { id: "visa" },
+          { id: "master" },
+          { id: "amex" },
+          { id: "elo" },
+          { id: "hipercard" },
+          { id: "diners" },
+          { id: "ticket" },
+          { id: "debit_card" },
+        ],
+        installments: null,
+      },
+      payer: {
+        email: clientEmail || `cliente${Date.now()}@exemplo.com`,
+        name: clientName,
+        surname: clientName.split(' ').slice(1).join(' ') || clientName,
+      },
+      external_reference: appointmentId,
+      metadata: {
+        appointmentId,
+        clientName,
+        paymentType,
+        serviceName,
+        professionalName,
+        appointmentDate,
+        appointmentTime,
+      },
+      statement_descriptor: "STUDIO IL",
+    };
 
-    if (!pixData) {
-      throw new Error("QR Code PIX não foi gerado");
+    if (clientPhone) {
+      const phoneNumbers = clientPhone.replace(/\D/g, '');
+      if (phoneNumbers.length >= 10) {
+        preferenceData.payer.phone = {
+          area_code: phoneNumbers.substring(0, 2),
+          number: phoneNumbers.substring(2),
+        };
+      }
+    }
+
+    const mpResponse = await fetch("https://api.mercadopago.com/checkout/preferences", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": `Bearer ${cleanToken}`,
+      },
+      body: JSON.stringify(preferenceData),
+    });
+
+    if (!mpResponse.ok) {
+      const errorData = await mpResponse.text();
+      throw new Error(`Mercado Pago API error: ${mpResponse.status} - ${errorData}`);
+    }
+
+    const preference = await mpResponse.json();
+
+    if (!preference.id) {
+      throw new Error("Preferência não foi criada pelo Mercado Pago");
     }
 
     return new Response(JSON.stringify({ 
-      paymentId: payment.id,
-      qrCode: pixData.qr_code || pixData.qr_code_base64,
-      qrCodeBase64: pixData.qr_code_base64,
-      ticketUrl: pixData.ticket_url,
+      paymentId: preference.id,
+      preferenceId: preference.id,
+      initPoint: preference.init_point || preference.sandbox_init_point,
+      sandboxInitPoint: preference.sandbox_init_point,
       type: 'pix',
       provider: 'mercadopago'
     }), {
