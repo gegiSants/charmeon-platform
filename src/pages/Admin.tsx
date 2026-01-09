@@ -52,6 +52,7 @@ const Admin = () => {
   const [editingService, setEditingService] = useState<any>(null);
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [isServiceDialogOpen, setIsServiceDialogOpen] = useState(false);
+  const [serviceFormProfessional, setServiceFormProfessional] = useState<string>('');
 
   // Verificar configuração do Supabase
   useEffect(() => {
@@ -208,7 +209,9 @@ const Admin = () => {
   };
 
   const handleAddService = async () => {
-    if (!selectedProfessional || selectedProfessional === 'all' || !newService.name || !newService.price || !newService.duration) {
+    const professionalId = serviceFormProfessional || (selectedProfessional !== 'all' ? selectedProfessional : '');
+    
+    if (!professionalId || !newService.name || !newService.price || !newService.duration) {
       toast.error('Selecione uma profissional e preencha todos os campos obrigatórios');
       return;
     }
@@ -216,7 +219,7 @@ const Admin = () => {
     const { error } = await supabase
       .from('services')
       .insert({
-        professional_id: selectedProfessional,
+        professional_id: professionalId,
         name: newService.name,
         price: parseFloat(newService.price),
         duration: parseInt(newService.duration),
@@ -228,8 +231,11 @@ const Admin = () => {
     } else {
       toast.success(`Serviço "${newService.name}" adicionado!`);
       setNewService({ name: '', price: '', duration: '' });
+      setServiceFormProfessional('');
       setIsServiceDialogOpen(false);
-      loadServices(selectedProfessional);
+      // Atualizar a seleção e recarregar serviços
+      setSelectedProfessional(professionalId);
+      loadServices(professionalId);
     }
   };
 
@@ -689,6 +695,24 @@ const Admin = () => {
                         </DialogTitle>
                       </DialogHeader>
                       <div className="space-y-4 py-4">
+                        {!editingService && (
+                          <div>
+                            <Label htmlFor="service-professional">Profissional *</Label>
+                            <Select 
+                              value={serviceFormProfessional} 
+                              onValueChange={setServiceFormProfessional}
+                            >
+                              <SelectTrigger id="service-professional">
+                                <SelectValue placeholder="Selecione uma profissional" />
+                              </SelectTrigger>
+                              <SelectContent>
+                                {professionals.map((pro) => (
+                                  <SelectItem key={pro.id} value={pro.id}>{pro.name}</SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
+                          </div>
+                        )}
                         <div>
                           <Label htmlFor="service-name">Nome do Serviço *</Label>
                           <Input
@@ -738,6 +762,7 @@ const Admin = () => {
                               setIsServiceDialogOpen(false);
                               setEditingService(null);
                               setNewService({ name: '', price: '', duration: '' });
+                              setServiceFormProfessional('');
                             }}
                           >
                             Cancelar
