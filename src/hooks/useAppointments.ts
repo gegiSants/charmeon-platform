@@ -100,9 +100,43 @@ export const generateTimeSlots = async (date: Date, professionalId: string): Pro
   }));
 };
 
+// Buscar email do cliente por telefone
+export const getClientEmail = async (phone: string): Promise<string | null> => {
+  const { data, error } = await supabase
+    .from('clients')
+    .select('email')
+    .eq('phone', phone)
+    .single();
+
+  if (error || !data) {
+    return null;
+  }
+
+  return data.email;
+};
+
+// Salvar ou atualizar email do cliente
+export const saveClientEmail = async (phone: string, email: string, name?: string): Promise<void> => {
+  const { error } = await supabase
+    .from('clients')
+    .upsert({
+      phone,
+      email,
+      name: name || null,
+      updated_at: new Date().toISOString(),
+    }, {
+      onConflict: 'phone',
+    });
+
+  if (error) {
+    throw error;
+  }
+};
+
 export const createAppointment = async (data: {
   clientName: string;
   clientPhone: string;
+  clientEmail?: string;
   professionalId: string;
   serviceId: string;
   date: Date;
@@ -110,11 +144,17 @@ export const createAppointment = async (data: {
   paymentType: 'sinal' | 'total';
   totalAmount: number;
 }) => {
+  // Se email foi fornecido, salvar na tabela de clientes
+  if (data.clientEmail) {
+    await saveClientEmail(data.clientPhone, data.clientEmail, data.clientName);
+  }
+
   const { data: appointment, error } = await supabase
     .from('appointments')
     .insert({
       client_name: data.clientName,
       client_phone: data.clientPhone,
+      client_email: data.clientEmail || null,
       professional_id: data.professionalId,
       service_id: data.serviceId,
       appointment_date: data.date.toISOString().split('T')[0],

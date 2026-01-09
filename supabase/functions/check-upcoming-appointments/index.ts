@@ -19,7 +19,7 @@ serve(async (req) => {
     );
 
     // Buscar agendamentos que estão entre 1 e 2 dias no futuro
-    // e ainda não receberam mensagem de confirmação
+    // e ainda não receberam email de confirmação
     const today = new Date();
     const oneDayFromNow = new Date(today);
     oneDayFromNow.setDate(today.getDate() + 1);
@@ -32,18 +32,20 @@ serve(async (req) => {
       .select(`
         id,
         client_name,
+        client_email,
         client_phone,
         appointment_date,
         appointment_time,
         professional_id,
         service_id,
         status,
-        whatsapp_confirmation_sent,
+        email_confirmation_sent,
         professionals:professional_id (name),
         services:service_id (name)
       `)
       .eq('status', 'pending')
-      .eq('whatsapp_confirmation_sent', false)
+      .eq('email_confirmation_sent', false)
+      .not('client_email', 'is', null)
       .gte('appointment_date', oneDayFromNow.toISOString().split('T')[0])
       .lte('appointment_date', twoDaysFromNow.toISOString().split('T')[0]);
 
@@ -69,7 +71,7 @@ serve(async (req) => {
 
     for (const apt of appointments) {
       try {
-        const response = await fetch(`${supabaseUrl}/functions/v1/send-whatsapp-confirmation`, {
+        const response = await fetch(`${supabaseUrl}/functions/v1/send-email-confirmation`, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
@@ -83,6 +85,7 @@ serve(async (req) => {
         results.push({
           appointmentId: apt.id,
           clientName: apt.client_name,
+          clientEmail: apt.client_email,
           success: result.success,
           message: result.message,
         });
@@ -90,6 +93,7 @@ serve(async (req) => {
         results.push({
           appointmentId: apt.id,
           clientName: apt.client_name,
+          clientEmail: apt.client_email,
           success: false,
           error: err instanceof Error ? err.message : String(err),
         });
