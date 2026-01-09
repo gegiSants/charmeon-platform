@@ -253,18 +253,21 @@ const Booking = () => {
                     )}
                   </div>
                   <div>
-                    {existingEmail ? (
-                      <div className="bg-muted/50 rounded-lg p-3">
-                        <Label className="flex items-center gap-2 mb-2">
-                          <Mail className="h-4 w-4" />
-                          Email cadastrado
-                        </Label>
-                        <p className="text-sm font-medium text-foreground">{existingEmail}</p>
+                    <Label htmlFor="email" className="flex items-center gap-2">
+                      <Mail className="h-4 w-4" />
+                      Email *
+                      <span className="text-xs text-muted-foreground font-normal ml-2">
+                        (obrigatório para confirmação)
+                      </span>
+                    </Label>
+                    {existingEmail && !clientEmail ? (
+                      <div className="bg-muted/50 rounded-lg p-3 mt-1">
+                        <p className="text-sm font-medium text-foreground mb-2">{existingEmail}</p>
                         <Button
                           type="button"
                           variant="ghost"
                           size="sm"
-                          className="mt-2 text-xs"
+                          className="text-xs"
                           onClick={() => {
                             setExistingEmail(null);
                             setClientEmail('');
@@ -274,27 +277,23 @@ const Booking = () => {
                         </Button>
                       </div>
                     ) : (
-                      <>
-                        <Label htmlFor="email" className="flex items-center gap-2">
-                          <Mail className="h-4 w-4" />
-                          Email *
-                          <span className="text-xs text-muted-foreground font-normal ml-2">
-                            (obrigatório para confirmação)
-                          </span>
-                        </Label>
-                        <Input
-                          id="email"
-                          type="email"
-                          value={clientEmail}
-                          onChange={(e) => setClientEmail(e.target.value)}
-                          placeholder="seu@email.com"
-                          className="mt-1"
-                          required
-                        />
-                        {clientEmail && !clientEmail.includes('@') && (
-                          <p className="text-xs text-destructive mt-1">Email inválido</p>
-                        )}
-                      </>
+                      <Input
+                        id="email"
+                        type="email"
+                        value={clientEmail}
+                        onChange={(e) => setClientEmail(e.target.value)}
+                        placeholder="seu@email.com"
+                        className="mt-1"
+                        required
+                      />
+                    )}
+                    {clientEmail && !clientEmail.includes('@') && (
+                      <p className="text-xs text-destructive mt-1">Email inválido</p>
+                    )}
+                    {!existingEmail && !clientEmail && (
+                      <p className="text-xs text-muted-foreground mt-1">
+                        Preencha seu email para receber a confirmação do agendamento
+                      </p>
                     )}
                   </div>
                 </div>

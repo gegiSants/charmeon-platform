@@ -693,14 +693,25 @@ const Admin = () => {
               <CardHeader className="flex flex-row items-center justify-between flex-wrap gap-4">
                 <CardTitle className="font-serif">Serviços</CardTitle>
                 <div className="flex gap-2 flex-wrap">
-                  <Select value={selectedProfessional} onValueChange={setSelectedProfessional}>
+                  <Select 
+                    value={selectedProfessional && selectedProfessional !== 'all' ? selectedProfessional : undefined} 
+                    onValueChange={(value) => {
+                      if (value) {
+                        setSelectedProfessional(value);
+                      }
+                    }}
+                  >
                     <SelectTrigger className="w-[180px]">
-                      <SelectValue placeholder="Profissional" />
+                      <SelectValue placeholder="Selecione uma profissional" />
                     </SelectTrigger>
                     <SelectContent>
-                      {professionals.map((pro) => (
-                        <SelectItem key={pro.id} value={pro.id}>{pro.name}</SelectItem>
-                      ))}
+                      {professionals.length > 0 ? (
+                        professionals.map((pro) => (
+                          <SelectItem key={pro.id} value={pro.id}>{pro.name}</SelectItem>
+                        ))
+                      ) : (
+                        <SelectItem value="placeholder" disabled>Nenhuma profissional cadastrada</SelectItem>
+                      )}
                     </SelectContent>
                   </Select>
                   <Dialog open={isServiceDialogOpen} onOpenChange={setIsServiceDialogOpen}>
