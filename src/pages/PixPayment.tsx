@@ -4,7 +4,7 @@ import Header from '@/components/Header';
 import Footer from '@/components/Footer';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Loader2, CheckCircle, Copy, ExternalLink, AlertCircle } from 'lucide-react';
+import { Loader2, CheckCircle, Copy, ExternalLink, AlertCircle, QrCode } from 'lucide-react';
 import { format } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 import { toast } from 'sonner';
@@ -14,6 +14,8 @@ const PixPayment = () => {
   const location = useLocation();
   const navigate = useNavigate();
   const [paymentLink, setPaymentLink] = useState<string>('');
+  const [pixCode, setPixCode] = useState<string>('');
+  const [qrCodeBase64, setQrCodeBase64] = useState<string>('');
   const [isLoading, setIsLoading] = useState(true);
   const [isPaid, setIsPaid] = useState(false);
   const [checkingPayment, setCheckingPayment] = useState(false);
@@ -43,20 +45,27 @@ const PixPayment = () => {
       return;
     }
 
-    // Se temos link de pagamento, usar diretamente
-    const link = bookingData.initPoint || bookingData.sandboxInitPoint;
-    if (link) {
-      setPaymentLink(link);
+    // Se temos código PIX direto, usar ele (prioridade)
+    if (bookingData.qrCode) {
+      setPixCode(bookingData.qrCode);
+      if (bookingData.qrCodeBase64) {
+        setQrCodeBase64(bookingData.qrCodeBase64);
+      }
       setIsLoading(false);
       startPaymentPolling();
-    } else if (bookingData.qrCode || bookingData.qrCodeBase64) {
-      // Se temos QR Code, redirecionar para link (não vamos mais usar QR Code)
-      toast.error('Use o link de pagamento');
+    } 
+    // Se temos link de pagamento (fallback), usar ele
+    else if (bookingData.initPoint || bookingData.sandboxInitPoint) {
+      const link = bookingData.initPoint || bookingData.sandboxInitPoint;
+      setPaymentLink(link || '');
       setIsLoading(false);
-    } else if (bookingData.preferenceId) {
-      // Se temos preferenceId, tentar buscar o link
+      startPaymentPolling();
+    } 
+    // Se temos preferenceId, tentar buscar o link
+    else if (bookingData.preferenceId) {
       fetchPaymentLink();
-    } else {
+    } 
+    else {
       toast.error('Dados de pagamento inválidos');
       setIsLoading(false);
     }
@@ -146,6 +155,13 @@ const PixPayment = () => {
     }
   };
 
+  const copyPixCode = () => {
+    if (pixCode) {
+      navigator.clipboard.writeText(pixCode);
+      toast.success('Código PIX copiado!');
+    }
+  };
+
   const openPaymentLink = () => {
     if (paymentLink) {
       window.open(paymentLink, '_blank');
@@ -166,7 +182,8 @@ const PixPayment = () => {
         <div className="max-w-lg mx-auto">
           <Card>
             <CardHeader>
-              <CardTitle className="font-serif text-xl">
+              <CardTitle className="font-serif text-xl flex items-center gap-2">
+                <QrCode className="h-5 w-5" />
                 Pagamento via PIX
               </CardTitle>
             </CardHeader>
@@ -198,7 +215,7 @@ const PixPayment = () => {
               {isLoading ? (
                 <div className="text-center py-8">
                   <Loader2 className="h-12 w-12 text-primary mx-auto mb-4 animate-spin" />
-                  <p className="text-muted-foreground">Gerando link de pagamento...</p>
+                  <p className="text-muted-foreground">Gerando dados de pagamento PIX...</p>
                 </div>
               ) : isPaid ? (
                 <div className="text-center py-8">
@@ -207,6 +224,69 @@ const PixPayment = () => {
                   </div>
                   <h3 className="font-semibold text-lg mb-2">Pagamento Confirmado!</h3>
                   <p className="text-muted-foreground">Redirecionando...</p>
+                </div>
+              ) : pixCode ? (
+                <div className="space-y-6">
+                  <div className="bg-primary/5 rounded-lg p-6 text-center">
+                    <p className="text-sm font-medium mb-4">Escaneie o QR Code com seu app de pagamento</p>
+                    {qrCodeBase64 ? (
+                      <div className="bg-white p-4 rounded-lg inline-block mb-4">
+                        <img 
+                          src={qrCodeBase64}
+                          alt="QR Code PIX"
+                          className="w-64 h-64 mx-auto"
+                        />
+                      </div>
+                    ) : (
+                      <div className="bg-white p-4 rounded-lg inline-block mb-4">
+                        <img 
+                          src={`https://api.qrserver.com/v1/create-qr-code/?size=300x300&data=${encodeURIComponent(pixCode)}`}
+                          alt="QR Code PIX"
+                          className="w-64 h-64 mx-auto"
+                        />
+                      </div>
+                    )}
+                    <div className="bg-muted rounded-lg p-3 mb-4">
+                      <p className="text-xs text-muted-foreground mb-2">Ou copie o código PIX:</p>
+                      <div className="flex items-center gap-2">
+                        <code className="flex-1 text-xs break-all text-left">{pixCode}</code>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={copyPixCode}
+                          className="shrink-0"
+                        >
+                          <Copy className="h-4 w-4" />
+                        </Button>
+                      </div>
+                    </div>
+                    <p className="text-xs text-muted-foreground">
+                      O QR Code expira em 30 minutos
+                    </p>
+                    {bookingData?.ticketUrl && (
+                      <div className="mt-4">
+                        <a
+                          href={bookingData.ticketUrl}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="text-sm text-primary hover:underline"
+                        >
+                          Abrir comprovante em nova aba
+                        </a>
+                      </div>
+                    )}
+                  </div>
+
+                  {checkingPayment && (
+                    <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+                      <div className="flex items-center gap-2">
+                        <Loader2 className="h-4 w-4 animate-spin text-blue-600" />
+                        <p className="text-sm text-blue-600">
+                          Aguardando confirmação do pagamento...
+                        </p>
+                      </div>
+                    </div>
+                  )}
                 </div>
               ) : paymentLink ? (
                 <div className="space-y-6">
@@ -277,7 +357,7 @@ const PixPayment = () => {
               ) : (
                 <div className="text-center py-8">
                   <AlertCircle className="h-12 w-12 text-destructive mx-auto mb-4" />
-                  <p className="text-muted-foreground mb-4">Erro ao gerar link de pagamento</p>
+                  <p className="text-muted-foreground mb-4">Erro ao gerar dados de pagamento PIX</p>
                   <Button onClick={() => navigate('/pagamento', { state: bookingData })}>
                     Tentar Novamente
                   </Button>
