@@ -27,8 +27,12 @@ const PixPayment = () => {
     date: Date;
     time: string;
     paymentId?: string;
+    preferenceId?: string;
     initPoint?: string;
     sandboxInitPoint?: string;
+    qrCode?: string;
+    qrCodeBase64?: string;
+    ticketUrl?: string;
     amount: number;
     restante: number;
   } | null;
@@ -39,27 +43,69 @@ const PixPayment = () => {
       return;
     }
 
-    // Buscar link de pagamento
+    // Se temos link de pagamento, usar diretamente
     const link = bookingData.initPoint || bookingData.sandboxInitPoint;
     if (link) {
       setPaymentLink(link);
       setIsLoading(false);
       startPaymentPolling();
+    } else if (bookingData.qrCode || bookingData.qrCodeBase64) {
+      // Se temos QR Code, redirecionar para link (não vamos mais usar QR Code)
+      toast.error('Use o link de pagamento');
+      setIsLoading(false);
+    } else if (bookingData.preferenceId) {
+      // Se temos preferenceId, tentar buscar o link
+      fetchPaymentLink();
     } else {
-      toast.error('Link de pagamento não disponível');
+      toast.error('Dados de pagamento inválidos');
       setIsLoading(false);
     }
   }, []);
 
+  const fetchPaymentLink = async () => {
+    if (!bookingData?.preferenceId) return;
+    
+    try {
+      // Tentar buscar dados da preferência
+      const { data, error } = await supabase.functions.invoke('verify-payment-mp', {
+        body: {
+          preferenceId: bookingData.preferenceId,
+          appointmentId: bookingData.appointmentId,
+        },
+      });
+
+      if (error) {
+        console.error('Error retrieving payment data:', error);
+        toast.error('Erro ao obter dados do pagamento');
+        setIsLoading(false);
+        return;
+      }
+
+      // Se já está pago, redirecionar
+      if (data?.paid) {
+        setIsPaid(true);
+        handlePaymentSuccess();
+      } else {
+        toast.error('Link de pagamento não disponível');
+        setIsLoading(false);
+      }
+    } catch (error) {
+      console.error('Error in fetchPaymentLink:', error);
+      toast.error('Erro ao processar pagamento PIX');
+      setIsLoading(false);
+    }
+  };
+
   const startPaymentPolling = () => {
-    if (!bookingData?.paymentId || !bookingData?.appointmentId) return;
+    if (!bookingData?.paymentId && !bookingData?.preferenceId || !bookingData?.appointmentId) return;
     
     setCheckingPayment(true);
     const interval = setInterval(async () => {
       try {
         const { data, error } = await supabase.functions.invoke('verify-payment-mp', {
           body: {
-            paymentId: bookingData.paymentId,
+            paymentId: bookingData?.paymentId,
+            preferenceId: bookingData?.preferenceId,
             appointmentId: bookingData.appointmentId,
           },
         });
