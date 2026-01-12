@@ -17,6 +17,7 @@ interface Appointment {
   service_id: string;
   professionals?: { name: string };
   services?: { name: string };
+  email_confirmation_sent: boolean;
 }
 
 serve(async (req) => {
@@ -91,9 +92,18 @@ serve(async (req) => {
     });
 
     // Criar links de confirmação
-    const baseUrl = Deno.env.get("SITE_URL") || "https://seu-site.com";
-    const confirmUrl = `${baseUrl}/api/confirm-appointment?token=${apt.id}&action=confirm`;
-    const cancelUrl = `${baseUrl}/api/confirm-appointment?token=${apt.id}&action=cancel`;
+    let baseUrl = Deno.env.get("SITE_URL") || "https://seu-site.com";
+    // Remover barras no final e /api se existir
+    baseUrl = baseUrl.trim().replace(/\/+$/, '').replace(/\/api$/, '');
+    const confirmUrl = `${baseUrl}/confirmar?token=${apt.id}&action=confirm`;
+    const cancelUrl = `${baseUrl}/confirmar?token=${apt.id}&action=cancel`;
+    
+    console.log('📧 URLs gerados:', {
+      baseUrl,
+      confirmUrl,
+      cancelUrl,
+      appointmentId: apt.id
+    });
 
     // Escapar valores para HTML
     const clientNameEscaped = escapeHtml(apt.client_name);
@@ -186,16 +196,51 @@ Ou responda este email com:
 
 Studio Ingrid Leandro`;
 
-    // Enviar via Resend (gratuito e fácil de configurar)
+    // Enviar via Resend
     const resendApiKey = Deno.env.get("RESEND_API_KEY");
-    const fromEmail = Deno.env.get("FROM_EMAIL");
-    const fromName = Deno.env.get("FROM_NAME") || "Studio Ingrid Leandro";
+    const fromEmailRaw = Deno.env.get("FROM_EMAIL");
+    const fromNameRaw = Deno.env.get("FROM_NAME") || "Studio Ingrid Leandro";
 
     let messageSent = false;
     let messageId = null;
 
-    if (!resendApiKey || !fromEmail) {
-      throw new Error("RESEND_API_KEY e FROM_EMAIL devem ser configurados. Veja CONFIGURACAO_EMAIL.md - é muito fácil!");
+    if (!resendApiKey || !fromEmailRaw) {
+      throw new Error("RESEND_API_KEY e FROM_EMAIL devem ser configurados. Veja SOLUCAO_SIMPLES_EMAIL.md");
+    }
+
+    // Limpar e extrair email do valor (remover markdown, espaços extras, etc)
+    let fromEmail = fromEmailRaw.trim();
+    // Se tiver backticks, remover
+    fromEmail = fromEmail.replace(/`/g, '');
+    // Se tiver formatação markdown como `- FROM_EMAIL: `email@example.com``, extrair apenas o email
+    const emailMatch = fromEmail.match(/([a-zA-Z0-9._-]+@[a-zA-Z0-9._-]+\.[a-zA-Z]{2,})/);
+    if (emailMatch) {
+      fromEmail = emailMatch[1];
+    }
+    // Remover espaços extras
+    fromEmail = fromEmail.trim();
+
+    // Validar formato do email
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(fromEmail)) {
+      throw new Error(`FROM_EMAIL inválido: "${fromEmailRaw}". Deve estar apenas o email, exemplo: onboarding@resend.dev`);
+    }
+
+    // Limpar nome também
+    let fromName = fromNameRaw.trim();
+    fromName = fromName.replace(/`/g, '').trim();
+
+    // Formatar campo 'from': usar apenas email para domínio de teste, ou nome <email> para domínios próprios
+    let fromField: string;
+    if (fromEmail === "onboarding@resend.dev") {
+      // Domínio de teste: usar apenas email (sem nome)
+      fromField = fromEmail;
+    } else if (fromName && fromName.length > 0) {
+      // Domínio próprio: usar formato Nome <email>
+      fromField = `${fromName} <${fromEmail}>`;
+    } else {
+      // Sem nome: usar apenas email
+      fromField = fromEmail;
     }
 
     try {
@@ -206,7 +251,7 @@ Studio Ingrid Leandro`;
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
-          from: `${fromName} <${fromEmail}>`,
+          from: fromField,
           to: [apt.client_email],
           subject: `Confirmação de Agendamento - ${formattedDate} às ${apt.appointment_time}`,
           text: emailText,
@@ -276,4 +321,3 @@ Studio Ingrid Leandro`;
     });
   }
 });
-

@@ -12,7 +12,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Badge } from '@/components/ui/badge';
 import { useProfessionals, useServices } from '@/hooks/useAppointments';
 import { supabase } from '@/integrations/supabase/client';
-import { Plus, Users, Scissors, Calendar, List, Phone, Clock, Trash2, Edit, Loader2, CheckCircle, XCircle, DollarSign } from 'lucide-react';
+import { Plus, Users, Scissors, Calendar, List, Phone, Clock, Trash2, Edit, Loader2, CheckCircle, XCircle, DollarSign, Mail } from 'lucide-react';
 import { toast } from 'sonner';
 import { format } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
@@ -21,6 +21,7 @@ interface Appointment {
   id: string;
   client_name: string;
   client_phone: string;
+  client_email?: string | null;
   professional_id: string;
   service_id: string;
   appointment_date: string;
@@ -32,6 +33,9 @@ interface Appointment {
   stripe_session_id: string | null;
   stripe_payment_intent_id: string | null;
   created_at: string;
+  email_confirmation_sent?: boolean;
+  email_confirmed?: boolean;
+  email_confirmed_at?: string | null;
   professionals?: { name: string; phone: string };
   services?: { name: string; price: number; duration: number };
 }
@@ -53,6 +57,7 @@ const Admin = () => {
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [isServiceDialogOpen, setIsServiceDialogOpen] = useState(false);
   const [serviceFormProfessional, setServiceFormProfessional] = useState<string>('');
+  const [sendingEmail, setSendingEmail] = useState<string | null>(null);
 
   // Verificar configuração do Supabase
   useEffect(() => {
@@ -315,6 +320,48 @@ const Admin = () => {
     }
   };
 
+  const handleSendEmail = async (appointmentId: string) => {
+    setSendingEmail(appointmentId);
+    try {
+      const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
+      const supabaseKey = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
+
+      if (!supabaseUrl || !supabaseKey) {
+        throw new Error('Configuração do Supabase não encontrada');
+      }
+
+      const response = await fetch(`${supabaseUrl}/functions/v1/send-email-confirmation`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${supabaseKey}`,
+          'apikey': supabaseKey,
+        },
+        body: JSON.stringify({ appointmentId }),
+      });
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        console.error('Erro na resposta:', response.status, errorText);
+        throw new Error(`Erro ${response.status}: ${errorText}`);
+      }
+
+      const data = await response.json();
+
+      if (data.success) {
+        toast.success(data.message || 'Email enviado com sucesso!');
+        loadAppointments(); // Recarregar para atualizar status
+      } else {
+        toast.error(data.error || 'Erro ao enviar email');
+      }
+    } catch (err: any) {
+      console.error('Unexpected error sending email:', err);
+      toast.error(`Erro ao enviar email: ${err?.message || 'Erro desconhecido'}`);
+    } finally {
+      setSendingEmail(null);
+    }
+  };
+
   const getStatusBadge = (status: string) => {
     const statusConfig = {
       pending: { label: 'Pendente', className: 'bg-yellow-100 text-yellow-800' },
@@ -524,22 +571,53 @@ const Admin = () => {
                                     </div>
                                   </div>
                                 </TableCell>
-                                <TableCell>{getStatusBadge(apt.status)}</TableCell>
                                 <TableCell>
-                                  <Select
-                                    value={apt.status}
-                                    onValueChange={(value) => handleUpdateAppointmentStatus(apt.id, value)}
-                                  >
-                                    <SelectTrigger className="w-[140px]">
-                                      <SelectValue />
-                                    </SelectTrigger>
-                                    <SelectContent>
-                                      <SelectItem value="pending">Pendente</SelectItem>
-                                      <SelectItem value="confirmed">Confirmado</SelectItem>
-                                      <SelectItem value="completed">Concluído</SelectItem>
-                                      <SelectItem value="cancelled">Cancelado</SelectItem>
-                                    </SelectContent>
-                                  </Select>
+                                  <div className="space-y-1">
+                                    {getStatusBadge(apt.status)}
+                                    {apt.email_confirmed && (
+                                      <div className="flex items-center gap-1 text-xs text-green-600">
+                                        <CheckCircle className="h-3 w-3" />
+                                        <span>Confirmado via email</span>
+                                      </div>
+                                    )}
+                                    {apt.email_confirmation_sent && !apt.email_confirmed && apt.status === 'pending' && (
+                                      <div className="flex items-center gap-1 text-xs text-yellow-600">
+                                        <Mail className="h-3 w-3" />
+                                        <span>Aguardando confirmação</span>
+                                      </div>
+                                    )}
+                                  </div>
+                                </TableCell>
+                                <TableCell>
+                                  <div className="flex gap-2 items-center">
+                                    <Select
+                                      value={apt.status}
+                                      onValueChange={(value) => handleUpdateAppointmentStatus(apt.id, value)}
+                                    >
+                                      <SelectTrigger className="w-[140px]">
+                                        <SelectValue />
+                                      </SelectTrigger>
+                                      <SelectContent>
+                                        <SelectItem value="pending">Pendente</SelectItem>
+                                        <SelectItem value="confirmed">Confirmado</SelectItem>
+                                        <SelectItem value="completed">Concluído</SelectItem>
+                                        <SelectItem value="cancelled">Cancelado</SelectItem>
+                                      </SelectContent>
+                                    </Select>
+                                    <Button
+                                      variant="outline"
+                                      size="icon"
+                                      onClick={() => handleSendEmail(apt.id)}
+                                      disabled={sendingEmail === apt.id}
+                                      title="Enviar email de confirmação"
+                                    >
+                                      {sendingEmail === apt.id ? (
+                                        <Loader2 className="h-4 w-4 animate-spin" />
+                                      ) : (
+                                        <Mail className="h-4 w-4" />
+                                      )}
+                                    </Button>
+                                  </div>
                                 </TableCell>
                               </TableRow>
                             );
