@@ -34,13 +34,6 @@ const ConfirmAppointment = () => {
       }
 
       try {
-        const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
-        const supabaseKey = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
-
-        if (!supabaseUrl || !supabaseKey) {
-          throw new Error('Configuração do Supabase não encontrada');
-        }
-
         console.log('🔍 Processando confirmação:', { token, action });
 
         // Buscar dados do agendamento primeiro
@@ -67,36 +60,30 @@ const ConfirmAppointment = () => {
 
         setAppointmentData(appointment);
 
-        // Chamar Edge Function para processar confirmação
+        // Chamar Edge Function para processar confirmação usando supabase.functions.invoke
         const requestBody = {
           appointmentId: token,
           action: action,
         };
         console.log('📤 Enviando requisição para email-webhook:', requestBody);
 
-        const response = await fetch(`${supabaseUrl}/functions/v1/email-webhook`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${supabaseKey}`,
-            'apikey': supabaseKey,
-          },
-          body: JSON.stringify(requestBody),
+        const { data, error: invokeError } = await supabase.functions.invoke('email-webhook', {
+          body: requestBody,
         });
 
         console.log('📥 Resposta recebida:', {
-          status: response.status,
-          statusText: response.statusText,
-          ok: response.ok
+          data,
+          error: invokeError
         });
 
-        if (!response.ok) {
-          const errorText = await response.text();
-          console.error('❌ Erro na resposta:', errorText);
-          throw new Error(`Erro ao processar confirmação: ${errorText}`);
+        if (invokeError) {
+          console.error('❌ Erro ao chamar função:', invokeError);
+          throw new Error(`Erro ao processar confirmação: ${invokeError.message || JSON.stringify(invokeError)}`);
         }
 
-        const data = await response.json();
+        if (!data) {
+          throw new Error('Resposta vazia da função');
+        }
         console.log('📦 Dados recebidos:', data);
 
         if (data.success) {
