@@ -9,6 +9,7 @@ import Payment from "./pages/Payment";
 import PixPayment from "./pages/PixPayment";
 import PaymentSuccess from "./pages/PaymentSuccess";
 import Admin from "./pages/Admin";
+import ConfirmAppointment from "./pages/ConfirmAppointment";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -26,6 +27,7 @@ const App = () => (
           <Route path="/pagamento-pix" element={<PixPayment />} />
           <Route path="/pagamento-sucesso" element={<PaymentSuccess />} />
           <Route path="/admin" element={<Admin />} />
+          <Route path="/confirmar" element={<ConfirmAppointment />} />
           <Route path="*" element={<NotFound />} />
         </Routes>
       </BrowserRouter>
