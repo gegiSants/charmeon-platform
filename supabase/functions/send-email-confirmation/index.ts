@@ -271,7 +271,31 @@ Studio Ingrid Leandro`;
       } else {
         const errorText = await resendResponse.text();
         console.error('Erro ao enviar email via Resend:', errorText);
-        throw new Error(`Erro ao enviar email: ${errorText}`);
+        
+        // Tentar parsear o erro para dar mensagem mais clara
+        let errorMessage = errorText;
+        try {
+          const errorJson = JSON.parse(errorText);
+          if (errorJson.message) {
+            errorMessage = errorJson.message;
+            
+            // Se for erro de domínio não verificado, dar instruções claras
+            if (errorMessage.includes('only send testing emails') || errorMessage.includes('verify a domain')) {
+              errorMessage = `⚠️ DOMÍNIO NÃO VERIFICADO NO RESEND\n\n` +
+                `O email está sendo enviado de um domínio de teste (onboarding@resend.dev), que só permite enviar para o email da conta.\n\n` +
+                `Para enviar para clientes reais, você precisa:\n` +
+                `1. Acessar: https://resend.com/domains\n` +
+                `2. Verificar seu domínio (ex: seu-dominio.com)\n` +
+                `3. Atualizar o secret FROM_EMAIL no Supabase para usar o domínio verificado\n` +
+                `   Exemplo: contato@seu-dominio.com\n\n` +
+                `Erro original: ${errorJson.message}`;
+            }
+          }
+        } catch {
+          // Se não conseguir parsear, usar o texto original
+        }
+        
+        throw new Error(`Erro ao enviar email: ${errorMessage}`);
       }
     } catch (error) {
       console.error('Erro ao enviar email:', error);
