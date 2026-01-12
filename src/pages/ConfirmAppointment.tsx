@@ -60,54 +60,56 @@ const ConfirmAppointment = () => {
 
         setAppointmentData(appointment);
 
-        // Chamar Edge Function para processar confirmação usando supabase.functions.invoke
-        const requestBody = {
-          appointmentId: token,
-          action: action,
-        };
-        console.log('📤 Enviando requisição para email-webhook:', requestBody);
+        // Atualizar diretamente no banco (RLS permite UPDATE público)
+        console.log('📤 Atualizando agendamento diretamente no banco:', { token, action });
 
-        const { data, error: invokeError } = await supabase.functions.invoke('email-webhook', {
-          body: requestBody,
-        });
-
-        console.log('📥 Resposta recebida:', {
-          data,
-          error: invokeError
-        });
-
-        if (invokeError) {
-          console.error('❌ Erro ao chamar função:', invokeError);
-          throw new Error(`Erro ao processar confirmação: ${invokeError.message || JSON.stringify(invokeError)}`);
+        const updateData: any = {};
+        if (action === 'confirm') {
+          updateData.status = 'confirmed';
+          updateData.email_confirmed = true;
+          updateData.email_confirmed_at = new Date().toISOString();
+        } else if (action === 'cancel') {
+          updateData.status = 'cancelled';
+          updateData.email_confirmed = false;
         }
 
-        if (!data) {
-          throw new Error('Resposta vazia da função');
-        }
-        console.log('📦 Dados recebidos:', data);
+        const { data: updatedData, error: updateError } = await supabase
+          .from('appointments')
+          .update(updateData)
+          .eq('id', token)
+          .select();
 
-        if (data.success) {
-          console.log('✅ Confirmação processada com sucesso');
-          setConfirmed(action === 'confirm');
-          if (action === 'confirm') {
-            toast.success('Agendamento confirmado com sucesso!');
-          } else {
-            toast.success('Solicitação de reagendamento recebida. Entraremos em contato em breve.');
-          }
-          
-          // Recarregar dados do agendamento para verificar atualização
-          setTimeout(async () => {
-            const { data: updatedAppointment } = await supabase
-              .from('appointments')
-              .select('status, email_confirmed, email_confirmed_at')
-              .eq('id', token)
-              .single();
-            console.log('🔄 Agendamento após atualização:', updatedAppointment);
-          }, 1000);
+        console.log('📥 Resposta da atualização:', {
+          data: updatedData,
+          error: updateError
+        });
+
+        if (updateError) {
+          console.error('❌ Erro ao atualizar agendamento:', updateError);
+          throw new Error(`Erro ao processar confirmação: ${updateError.message}`);
+        }
+
+        if (!updatedData || updatedData.length === 0) {
+          throw new Error('Agendamento não foi atualizado');
+        }
+
+        console.log('✅ Confirmação processada com sucesso');
+        setConfirmed(action === 'confirm');
+        if (action === 'confirm') {
+          toast.success('Agendamento confirmado com sucesso!');
         } else {
-          console.error('❌ Resposta não indicou sucesso:', data);
-          throw new Error(data.error || 'Erro ao processar confirmação');
+          toast.success('Solicitação de reagendamento recebida. Entraremos em contato em breve.');
         }
+        
+        // Recarregar dados do agendamento para verificar atualização
+        setTimeout(async () => {
+          const { data: finalAppointment } = await supabase
+            .from('appointments')
+            .select('status, email_confirmed, email_confirmed_at')
+            .eq('id', token)
+            .single();
+          console.log('🔄 Agendamento após atualização:', finalAppointment);
+        }, 500);
       } catch (err: any) {
         console.error('Error processing confirmation:', err);
         setError(err.message || 'Erro ao processar confirmação');
