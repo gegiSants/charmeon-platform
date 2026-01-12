@@ -83,9 +83,21 @@ const Booking = () => {
     setSelectedTime(null);
     if (date && selectedProfessional) {
       setLoadingSlots(true);
-      const slots = await generateTimeSlots(date, selectedProfessional);
-      setTimeSlots(slots);
-      setLoadingSlots(false);
+      try {
+        const slots = await generateTimeSlots(date, selectedProfessional);
+        setTimeSlots(slots);
+        
+        // Se o horário selecionado não estiver mais disponível, limpar seleção
+        if (selectedTime && !slots.find(s => s.time === selectedTime && s.available)) {
+          setSelectedTime(null);
+          toast.warning('O horário selecionado não está mais disponível. Por favor, escolha outro.');
+        }
+      } catch (error) {
+        console.error('Error loading time slots:', error);
+        toast.error('Erro ao carregar horários disponíveis');
+      } finally {
+        setLoadingSlots(false);
+      }
     }
   };
 
@@ -162,9 +174,23 @@ const Booking = () => {
           time: selectedTime,
         },
       });
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error creating appointment:', error);
-      toast.error('Erro ao criar agendamento. Tente novamente.');
+      
+      // Mensagem de erro mais específica para conflitos de horário
+      const errorMessage = error?.message || 'Erro ao criar agendamento';
+      
+      if (errorMessage.includes('já está ocupado') || errorMessage.includes('horário')) {
+        toast.error(errorMessage);
+        // Recarregar horários disponíveis para atualizar a interface
+        if (selectedDate && selectedProfessional) {
+          const slots = await generateTimeSlots(selectedDate, selectedProfessional);
+          setTimeSlots(slots);
+          setSelectedTime(null); // Limpar seleção
+        }
+      } else {
+        toast.error(`Erro ao criar agendamento: ${errorMessage}`);
+      }
     } finally {
       setIsSubmitting(false);
     }

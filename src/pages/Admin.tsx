@@ -58,6 +58,13 @@ const Admin = () => {
   const [isServiceDialogOpen, setIsServiceDialogOpen] = useState(false);
   const [serviceFormProfessional, setServiceFormProfessional] = useState<string>('');
   const [sendingEmail, setSendingEmail] = useState<string | null>(null);
+  
+  // Estados para gerenciamento de horários
+  const [availableHours, setAvailableHours] = useState<any[]>([]);
+  const [loadingHours, setLoadingHours] = useState(false);
+  const [hoursProfessionalFilter, setHoursProfessionalFilter] = useState<string>('all');
+  const [newHour, setNewHour] = useState({ time: '', professionalId: '' });
+  const [isHourDialogOpen, setIsHourDialogOpen] = useState(false);
 
   // Verificar configuração do Supabase
   useEffect(() => {
@@ -84,6 +91,43 @@ const Admin = () => {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedProfessional]);
+
+  // Carregar horários disponíveis
+  const loadAvailableHours = async () => {
+    try {
+      setLoadingHours(true);
+      let query = supabase
+        .from('available_hours')
+        .select('*, professionals:professional_id(id, name)')
+        .order('time');
+
+      if (hoursProfessionalFilter !== 'all') {
+        query = query.or(`professional_id.eq.${hoursProfessionalFilter},professional_id.is.null`);
+      }
+
+      const { data, error: queryError } = await query;
+
+      if (queryError) {
+        console.error('Error loading hours:', queryError);
+        toast.error(`Erro ao carregar horários: ${queryError.message}`);
+        setAvailableHours([]);
+      } else {
+        setAvailableHours(data || []);
+      }
+    } catch (err: any) {
+      console.error('Unexpected error loading hours:', err);
+      toast.error('Erro ao carregar horários');
+      setAvailableHours([]);
+    } finally {
+      setLoadingHours(false);
+    }
+  };
+
+  // Carregar horários quando a aba é selecionada ou filtro muda
+  useEffect(() => {
+    loadAvailableHours();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [hoursProfessionalFilter]);
 
   const loadServices = async (professionalId: string) => {
     try {
@@ -451,7 +495,7 @@ const Admin = () => {
         </div>
 
         <Tabs defaultValue="schedule" className="space-y-6">
-          <TabsList className="grid w-full grid-cols-4 lg:w-auto lg:inline-flex">
+          <TabsList className="grid w-full grid-cols-5 lg:w-auto lg:inline-flex">
             <TabsTrigger value="schedule" className="gap-2">
               <Calendar className="h-4 w-4 hidden sm:inline" />
               Agenda
@@ -463,6 +507,10 @@ const Admin = () => {
             <TabsTrigger value="services" className="gap-2">
               <Scissors className="h-4 w-4 hidden sm:inline" />
               Serviços
+            </TabsTrigger>
+            <TabsTrigger value="hours" className="gap-2">
+              <Clock className="h-4 w-4 hidden sm:inline" />
+              Horários
             </TabsTrigger>
             <TabsTrigger value="clients" className="gap-2">
               <List className="h-4 w-4 hidden sm:inline" />
@@ -716,28 +764,28 @@ const Admin = () => {
                     <Loader2 className="h-8 w-8 animate-spin text-primary" />
                   </div>
                 ) : (
-                  <div className="space-y-4">
-                    {professionals.map((pro) => (
-                      <div
-                        key={pro.id}
-                        className="flex items-center justify-between p-4 rounded-lg border border-border"
-                      >
-                        <div className="flex items-center gap-4">
-                          <img
+                <div className="space-y-4">
+                  {professionals.map((pro) => (
+                    <div
+                      key={pro.id}
+                      className="flex items-center justify-between p-4 rounded-lg border border-border"
+                    >
+                      <div className="flex items-center gap-4">
+                        <img
                             src={pro.photo_url || 'https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=400&h=400&fit=crop&crop=face'}
-                            alt={pro.name}
-                            className="w-12 h-12 rounded-full object-cover"
-                          />
-                          <div>
-                            <h4 className="font-medium">{pro.name}</h4>
-                            <p className="text-sm text-muted-foreground">{pro.specialty}</p>
-                            <p className="text-xs text-muted-foreground flex items-center gap-1">
-                              <Phone className="h-3 w-3" />
-                              {pro.phone}
-                            </p>
-                          </div>
+                          alt={pro.name}
+                          className="w-12 h-12 rounded-full object-cover"
+                        />
+                        <div>
+                          <h4 className="font-medium">{pro.name}</h4>
+                          <p className="text-sm text-muted-foreground">{pro.specialty}</p>
+                          <p className="text-xs text-muted-foreground flex items-center gap-1">
+                            <Phone className="h-3 w-3" />
+                            {pro.phone}
+                          </p>
                         </div>
-                        <div className="flex gap-2">
+                      </div>
+                      <div className="flex gap-2">
                           <Button
                             variant="outline"
                             size="icon"
@@ -746,20 +794,20 @@ const Admin = () => {
                               setIsDialogOpen(true);
                             }}
                           >
-                            <Edit className="h-4 w-4" />
-                          </Button>
+                          <Edit className="h-4 w-4" />
+                        </Button>
                           <Button
                             variant="outline"
                             size="icon"
                             className="text-destructive"
                             onClick={() => handleDeleteProfessional(pro.id)}
                           >
-                            <Trash2 className="h-4 w-4" />
-                          </Button>
-                        </div>
+                          <Trash2 className="h-4 w-4" />
+                        </Button>
                       </div>
-                    ))}
-                  </div>
+                    </div>
+                  ))}
+                </div>
                 )}
               </CardContent>
             </Card>
@@ -785,7 +833,7 @@ const Admin = () => {
                     <SelectContent>
                       {professionals.length > 0 ? (
                         professionals.map((pro) => (
-                          <SelectItem key={pro.id} value={pro.id}>{pro.name}</SelectItem>
+                        <SelectItem key={pro.id} value={pro.id}>{pro.name}</SelectItem>
                         ))
                       ) : (
                         <SelectItem value="placeholder" disabled>Nenhuma profissional cadastrada</SelectItem>
@@ -895,16 +943,16 @@ const Admin = () => {
                     <Loader2 className="h-8 w-8 animate-spin text-primary" />
                   </div>
                 ) : (
-                  <Table>
-                    <TableHeader>
-                      <TableRow>
-                        <TableHead>Serviço</TableHead>
-                        <TableHead>Duração</TableHead>
-                        <TableHead>Valor</TableHead>
-                        <TableHead className="text-right">Ações</TableHead>
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Serviço</TableHead>
+                      <TableHead>Duração</TableHead>
+                      <TableHead>Valor</TableHead>
+                      <TableHead className="text-right">Ações</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
                       {services.length === 0 ? (
                         <TableRow>
                           <TableCell colSpan={4} className="text-center py-8 text-muted-foreground">
@@ -913,17 +961,17 @@ const Admin = () => {
                         </TableRow>
                       ) : (
                         services.map((service) => (
-                          <TableRow key={service.id}>
-                            <TableCell className="font-medium">{service.name}</TableCell>
-                            <TableCell>
-                              <span className="flex items-center gap-1">
-                                <Clock className="h-3 w-3" />
-                                {service.duration} min
-                              </span>
-                            </TableCell>
+                      <TableRow key={service.id}>
+                        <TableCell className="font-medium">{service.name}</TableCell>
+                        <TableCell>
+                          <span className="flex items-center gap-1">
+                            <Clock className="h-3 w-3" />
+                            {service.duration} min
+                          </span>
+                        </TableCell>
                             <TableCell>R$ {Number(service.price).toFixed(2)}</TableCell>
-                            <TableCell className="text-right">
-                              <div className="flex justify-end gap-2">
+                        <TableCell className="text-right">
+                          <div className="flex justify-end gap-2">
                                 <Button
                                   variant="outline"
                                   size="icon"
@@ -932,29 +980,239 @@ const Admin = () => {
                                     setIsServiceDialogOpen(true);
                                   }}
                                 >
-                                  <Edit className="h-4 w-4" />
-                                </Button>
+                              <Edit className="h-4 w-4" />
+                            </Button>
                                 <Button
                                   variant="outline"
                                   size="icon"
                                   className="text-destructive"
                                   onClick={() => handleDeleteService(service.id)}
                                 >
-                                  <Trash2 className="h-4 w-4" />
-                                </Button>
-                              </div>
-                            </TableCell>
-                          </TableRow>
+                              <Trash2 className="h-4 w-4" />
+                            </Button>
+                          </div>
+                        </TableCell>
+                      </TableRow>
                         ))
                       )}
-                    </TableBody>
-                  </Table>
+                  </TableBody>
+                </Table>
                 )}
               </CardContent>
             </Card>
           </TabsContent>
 
           {/* Tab: Clientes */}
+          {/* Tab: Horários */}
+          <TabsContent value="hours">
+            <Card>
+              <CardHeader className="flex flex-row items-center justify-between flex-wrap gap-4">
+                <CardTitle className="font-serif">Gerenciar Horários Disponíveis</CardTitle>
+                <div className="flex gap-2">
+                  <Select value={hoursProfessionalFilter} onValueChange={setHoursProfessionalFilter}>
+                    <SelectTrigger className="w-[200px]">
+                      <SelectValue placeholder="Filtrar por profissional" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">Todos (Globais + Específicos)</SelectItem>
+                      <SelectItem value="global">Apenas Globais</SelectItem>
+                      {professionals.map((pro) => (
+                        <SelectItem key={pro.id} value={pro.id}>{pro.name}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <Dialog open={isHourDialogOpen} onOpenChange={setIsHourDialogOpen}>
+                    <DialogTrigger asChild>
+                      <Button>
+                        <Plus className="h-4 w-4 mr-2" />
+                        Adicionar Horário
+                      </Button>
+                    </DialogTrigger>
+                    <DialogContent>
+                      <DialogHeader>
+                        <DialogTitle>Adicionar Horário</DialogTitle>
+                      </DialogHeader>
+                      <div className="space-y-4">
+                        <div>
+                          <Label htmlFor="hour-time">Horário (HH:MM) *</Label>
+                          <Input
+                            id="hour-time"
+                            type="time"
+                            value={newHour.time}
+                            onChange={(e) => setNewHour({ ...newHour, time: e.target.value })}
+                            placeholder="09:00"
+                            required
+                          />
+                          <p className="text-xs text-muted-foreground mt-1">
+                            Exemplo: 09:00, 14:30
+                          </p>
+                        </div>
+                        <div>
+                          <Label htmlFor="hour-professional">Profissional</Label>
+                          <Select
+                            value={newHour.professionalId}
+                            onValueChange={(value) => setNewHour({ ...newHour, professionalId: value })}
+                          >
+                            <SelectTrigger>
+                              <SelectValue placeholder="Global (para todos)" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="">Global (para todos)</SelectItem>
+                              {professionals.map((pro) => (
+                                <SelectItem key={pro.id} value={pro.id}>{pro.name}</SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                          <p className="text-xs text-muted-foreground mt-1">
+                            Deixe vazio para horário global (disponível para todos)
+                          </p>
+                        </div>
+                        <DialogFooter>
+                          <Button
+                            variant="outline"
+                            onClick={() => {
+                              setIsHourDialogOpen(false);
+                              setNewHour({ time: '', professionalId: '' });
+                            }}
+                          >
+                            Cancelar
+                          </Button>
+                          <Button
+                            onClick={async () => {
+                              if (!newHour.time) {
+                                toast.error('Preencha o horário');
+                                return;
+                              }
+
+                              const hourData: any = {
+                                time: newHour.time,
+                                is_active: true,
+                              };
+
+                              if (newHour.professionalId) {
+                                hourData.professional_id = newHour.professionalId;
+                              }
+
+                              const { error } = await supabase
+                                .from('available_hours')
+                                .insert(hourData);
+
+                              if (error) {
+                                console.error('Error adding hour:', error);
+                                toast.error(`Erro ao adicionar horário: ${error.message}`);
+                              } else {
+                                toast.success('Horário adicionado!');
+                                setIsHourDialogOpen(false);
+                                setNewHour({ time: '', professionalId: '' });
+                                loadAvailableHours();
+                              }
+                            }}
+                          >
+                            Salvar
+                          </Button>
+                        </DialogFooter>
+                      </div>
+                    </DialogContent>
+                  </Dialog>
+                  <Button onClick={loadAvailableHours} variant="outline" size="sm">
+                    Atualizar
+                  </Button>
+                </div>
+              </CardHeader>
+              <CardContent>
+                {loadingHours ? (
+                  <div className="flex justify-center py-8">
+                    <Loader2 className="h-8 w-8 animate-spin text-primary" />
+                  </div>
+                ) : (
+                  <div className="overflow-x-auto">
+                    <Table>
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead>Horário</TableHead>
+                          <TableHead>Profissional</TableHead>
+                          <TableHead>Status</TableHead>
+                          <TableHead>Ações</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {availableHours.length === 0 ? (
+                          <TableRow>
+                            <TableCell colSpan={4} className="text-center py-8 text-muted-foreground">
+                              Nenhum horário configurado
+                            </TableCell>
+                          </TableRow>
+                        ) : (
+                          availableHours.map((hour) => (
+                            <TableRow key={hour.id}>
+                              <TableCell className="font-medium">{hour.time}</TableCell>
+                              <TableCell>
+                                {hour.professional_id ? (
+                                  <span>{hour.professionals?.name || 'Carregando...'}</span>
+                                ) : (
+                                  <Badge variant="secondary">Global</Badge>
+                                )}
+                              </TableCell>
+                              <TableCell>
+                                <Badge variant={hour.is_active ? 'default' : 'secondary'}>
+                                  {hour.is_active ? 'Ativo' : 'Inativo'}
+                                </Badge>
+                              </TableCell>
+                              <TableCell>
+                                <div className="flex gap-2">
+                                  <Button
+                                    variant="outline"
+                                    size="sm"
+                                    onClick={async () => {
+                                      const { error } = await supabase
+                                        .from('available_hours')
+                                        .update({ is_active: !hour.is_active })
+                                        .eq('id', hour.id);
+
+                                      if (error) {
+                                        toast.error('Erro ao atualizar horário');
+                                      } else {
+                                        toast.success(`Horário ${!hour.is_active ? 'ativado' : 'desativado'}`);
+                                        loadAvailableHours();
+                                      }
+                                    }}
+                                  >
+                                    {hour.is_active ? 'Desativar' : 'Ativar'}
+                                  </Button>
+                                  <Button
+                                    variant="outline"
+                                    size="sm"
+                                    onClick={async () => {
+                                      if (!confirm('Tem certeza que deseja excluir este horário?')) return;
+
+                                      const { error } = await supabase
+                                        .from('available_hours')
+                                        .delete()
+                                        .eq('id', hour.id);
+
+                                      if (error) {
+                                        toast.error('Erro ao excluir horário');
+                                      } else {
+                                        toast.success('Horário excluído!');
+                                        loadAvailableHours();
+                                      }
+                                    }}
+                                  >
+                                    <Trash2 className="h-4 w-4" />
+                                  </Button>
+                                </div>
+                              </TableCell>
+                            </TableRow>
+                          ))
+                        )}
+                      </TableBody>
+                    </Table>
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          </TabsContent>
+
           <TabsContent value="clients">
             <Card>
               <CardHeader>
@@ -981,23 +1239,23 @@ const Admin = () => {
                         const clientAppointments = appointments.filter(
                           apt => apt.client_phone === client.phone
                         );
-                        return (
+                      return (
                           <TableRow key={index}>
                             <TableCell className="font-medium">{client.name}</TableCell>
-                            <TableCell>
-                              <a
+                          <TableCell>
+                            <a
                                 href={`https://wa.me/55${client.phone.replace(/\D/g, '')}`}
-                                target="_blank"
-                                rel="noopener noreferrer"
-                                className="text-primary hover:underline flex items-center gap-1"
-                              >
-                                <Phone className="h-3 w-3" />
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="text-primary hover:underline flex items-center gap-1"
+                            >
+                              <Phone className="h-3 w-3" />
                                 {client.phone}
-                              </a>
-                            </TableCell>
+                            </a>
+                          </TableCell>
                             <TableCell>{clientAppointments.length}</TableCell>
-                          </TableRow>
-                        );
+                        </TableRow>
+                      );
                       })
                     )}
                   </TableBody>
