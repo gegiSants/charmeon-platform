@@ -93,6 +93,8 @@ const Admin = () => {
   const [isServiceDialogOpen, setIsServiceDialogOpen] = useState(false);
   const [serviceFormProfessional, setServiceFormProfessional] = useState<string>('');
   const [sendingEmail, setSendingEmail] = useState<string | null>(null);
+  const [isCategoryDialogOpen, setIsCategoryDialogOpen] = useState(false);
+  const [newCategoryName, setNewCategoryName] = useState('');
   
   // Estados para gerenciamento de horários
   const [availableHours, setAvailableHours] = useState<any[]>([]);
@@ -139,6 +141,39 @@ const Admin = () => {
       toast.error('Erro ao carregar categorias');
     } else {
       setCategories(data || []);
+    }
+  };
+
+  const handleAddCategory = async () => {
+    if (!newCategoryName.trim()) {
+      toast.error('Digite o nome da categoria');
+      return;
+    }
+
+    const { data, error } = await supabase
+      .from('categories')
+      .insert({
+        name: newCategoryName.trim(),
+        is_active: true,
+        display_order: categories.length + 1
+      })
+      .select()
+      .single();
+
+    if (error) {
+      console.error('Error adding category:', error);
+      toast.error('Erro ao adicionar categoria');
+    } else {
+      toast.success('Categoria adicionada!');
+      setNewCategoryName('');
+      setIsCategoryDialogOpen(false);
+      loadCategories();
+      // Selecionar a categoria recém-criada no serviço
+      if (editingService) {
+        setEditingService({ ...editingService, category_id: data.id });
+      } else {
+        setNewService({ ...newService, category_id: data.id });
+      }
     }
   };
 
@@ -823,32 +858,40 @@ const Admin = () => {
         </div>
 
         <Tabs defaultValue="schedule" className="space-y-6">
-          <TabsList className="grid w-full grid-cols-5 lg:w-auto lg:inline-flex">
-            <TabsTrigger value="schedule" className="gap-2">
-              <Calendar className="h-4 w-4 hidden sm:inline" />
-              Agenda
-            </TabsTrigger>
-            <TabsTrigger value="professionals" className="gap-2">
-              <Users className="h-4 w-4 hidden sm:inline" />
-              Profissionais
-            </TabsTrigger>
-            <TabsTrigger value="services" className="gap-2">
-              <Scissors className="h-4 w-4 hidden sm:inline" />
-              Serviços
-            </TabsTrigger>
-            <TabsTrigger value="hours" className="gap-2">
-              <Clock className="h-4 w-4 hidden sm:inline" />
-              Horários
-            </TabsTrigger>
-            <TabsTrigger value="blocked" className="gap-2">
-              <Ban className="h-4 w-4 hidden sm:inline" />
-              Bloqueios
-            </TabsTrigger>
-            <TabsTrigger value="clients" className="gap-2">
-              <List className="h-4 w-4 hidden sm:inline" />
-              Clientes
-            </TabsTrigger>
-          </TabsList>
+          <div className="overflow-x-auto -mx-4 px-4">
+            <TabsList className="inline-flex w-auto min-w-full sm:min-w-0">
+              <TabsTrigger value="schedule" className="gap-1 sm:gap-2 text-xs sm:text-sm whitespace-nowrap">
+                <Calendar className="h-3 w-3 sm:h-4 sm:w-4" />
+                <span className="hidden xs:inline">Agenda</span>
+                <span className="xs:hidden">Ag.</span>
+              </TabsTrigger>
+              <TabsTrigger value="professionals" className="gap-1 sm:gap-2 text-xs sm:text-sm whitespace-nowrap">
+                <Users className="h-3 w-3 sm:h-4 sm:w-4" />
+                <span className="hidden xs:inline">Profissionais</span>
+                <span className="xs:hidden">Prof.</span>
+              </TabsTrigger>
+              <TabsTrigger value="services" className="gap-1 sm:gap-2 text-xs sm:text-sm whitespace-nowrap">
+                <Scissors className="h-3 w-3 sm:h-4 sm:w-4" />
+                <span className="hidden xs:inline">Serviços</span>
+                <span className="xs:hidden">Serv.</span>
+              </TabsTrigger>
+              <TabsTrigger value="hours" className="gap-1 sm:gap-2 text-xs sm:text-sm whitespace-nowrap">
+                <Clock className="h-3 w-3 sm:h-4 sm:w-4" />
+                <span className="hidden xs:inline">Horários</span>
+                <span className="xs:hidden">Hor.</span>
+              </TabsTrigger>
+              <TabsTrigger value="blocked" className="gap-1 sm:gap-2 text-xs sm:text-sm whitespace-nowrap">
+                <Ban className="h-3 w-3 sm:h-4 sm:w-4" />
+                <span className="hidden xs:inline">Bloqueios</span>
+                <span className="xs:hidden">Bloq.</span>
+              </TabsTrigger>
+              <TabsTrigger value="clients" className="gap-1 sm:gap-2 text-xs sm:text-sm whitespace-nowrap">
+                <List className="h-3 w-3 sm:h-4 sm:w-4" />
+                <span className="hidden xs:inline">Clientes</span>
+                <span className="xs:hidden">Cli.</span>
+              </TabsTrigger>
+            </TabsList>
+          </div>
 
           {/* Tab: Agenda */}
           <TabsContent value="schedule">
@@ -878,17 +921,17 @@ const Admin = () => {
                     <Loader2 className="h-8 w-8 animate-spin text-primary" />
                   </div>
                 ) : (
-                  <div className="overflow-x-auto">
+                  <div className="overflow-x-auto -mx-4 px-4 sm:mx-0 sm:px-0">
                     <Table>
                       <TableHeader>
                         <TableRow>
-                          <TableHead>Data</TableHead>
-                          <TableHead>Horário</TableHead>
-                          <TableHead>Cliente</TableHead>
-                          <TableHead>Serviço</TableHead>
-                          <TableHead>Pagamento</TableHead>
-                          <TableHead>Status</TableHead>
-                          <TableHead>Ações</TableHead>
+                          <TableHead className="text-xs sm:text-sm">Data</TableHead>
+                          <TableHead className="text-xs sm:text-sm">Horário</TableHead>
+                          <TableHead className="text-xs sm:text-sm">Cliente</TableHead>
+                          <TableHead className="text-xs sm:text-sm hidden sm:table-cell">Serviço</TableHead>
+                          <TableHead className="text-xs sm:text-sm hidden md:table-cell">Pagamento</TableHead>
+                          <TableHead className="text-xs sm:text-sm">Status</TableHead>
+                          <TableHead className="text-xs sm:text-sm">Ações</TableHead>
                         </TableRow>
                       </TableHeader>
                       <TableBody>
@@ -906,13 +949,13 @@ const Admin = () => {
                             
                             return (
                               <TableRow key={apt.id}>
-                                <TableCell>
+                                <TableCell className="text-xs sm:text-sm">
                                   {formatDateString(apt.appointment_date)}
                                 </TableCell>
-                                <TableCell>{apt.appointment_time}</TableCell>
+                                <TableCell className="text-xs sm:text-sm">{apt.appointment_time}</TableCell>
                                 <TableCell>
                                   <div>
-                                    <p className="font-medium">{apt.client_name}</p>
+                                    <p className="font-medium text-xs sm:text-sm">{apt.client_name}</p>
                                     <a
                                       href={`https://wa.me/55${apt.client_phone.replace(/\D/g, '')}`}
                                       target="_blank"
@@ -924,16 +967,16 @@ const Admin = () => {
                                     </a>
                                   </div>
                                 </TableCell>
-                                <TableCell>
+                                <TableCell className="hidden sm:table-cell">
                                   <div>
-                                    <p className="font-medium">{service?.name || 'N/A'}</p>
+                                    <p className="font-medium text-xs sm:text-sm">{service?.name || 'N/A'}</p>
                                     <p className="text-xs text-muted-foreground">
                                       {professional?.name || 'N/A'}
                                     </p>
                                   </div>
                                 </TableCell>
-                                <TableCell>
-                                  <div className="text-sm">
+                                <TableCell className="hidden md:table-cell">
+                                  <div className="text-xs sm:text-sm">
                                     <div className="flex items-center gap-1">
                                       <DollarSign className="h-3 w-3" />
                                       <span>Pago: R$ {Number(apt.amount_paid).toFixed(2)}</span>
@@ -969,12 +1012,12 @@ const Admin = () => {
                                   </div>
                                 </TableCell>
                                 <TableCell>
-                                  <div className="flex gap-2 items-center">
+                                  <div className="flex flex-col sm:flex-row gap-2 items-start sm:items-center">
                                     <Select
                                       value={apt.status}
                                       onValueChange={(value) => handleUpdateAppointmentStatus(apt.id, value)}
                                     >
-                                      <SelectTrigger className="w-[140px]">
+                                      <SelectTrigger className="w-full sm:w-[140px] text-xs sm:text-sm">
                                         <SelectValue />
                                       </SelectTrigger>
                                       <SelectContent>
@@ -987,14 +1030,15 @@ const Admin = () => {
                                     <Button
                                       variant="outline"
                                       size="icon"
+                                      className="h-8 w-8 sm:h-10 sm:w-10"
                                       onClick={() => handleSendEmail(apt.id)}
                                       disabled={sendingEmail === apt.id}
                                       title="Enviar email de confirmação"
                                     >
                                       {sendingEmail === apt.id ? (
-                                        <Loader2 className="h-4 w-4 animate-spin" />
+                                        <Loader2 className="h-3 w-3 sm:h-4 sm:w-4 animate-spin" />
                                       ) : (
-                                        <Mail className="h-4 w-4" />
+                                        <Mail className="h-3 w-3 sm:h-4 sm:w-4" />
                                       )}
                                     </Button>
                                   </div>
@@ -1023,7 +1067,7 @@ const Admin = () => {
                       Adicionar
                     </Button>
                   </DialogTrigger>
-                  <DialogContent>
+                  <DialogContent className="w-[95vw] max-w-lg max-h-[90vh] overflow-y-auto p-4 sm:p-6">
                     <DialogHeader>
                       <DialogTitle>
                         {editingProfessional ? 'Editar Profissional' : 'Nova Profissional'}
@@ -1310,7 +1354,7 @@ const Admin = () => {
                         Adicionar Serviço
                       </Button>
                     </DialogTrigger>
-                    <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
+                    <DialogContent className="w-[95vw] max-w-4xl max-h-[90vh] overflow-y-auto p-4 sm:p-6">
                       <DialogHeader>
                         <DialogTitle>
                           {editingService ? 'Editar Serviço' : 'Novo Serviço'}
@@ -1494,29 +1538,70 @@ const Admin = () => {
                         </div>
                         <div>
                           <Label htmlFor="service-category">Categoria (opcional)</Label>
-                          <Select
-                            value={(editingService?.category_id || newService.category_id || 'none') === '' ? 'none' : (editingService?.category_id || newService.category_id || 'none')}
-                            onValueChange={(value) => {
-                              const categoryValue = value === 'none' ? '' : value;
-                              if (editingService) {
-                                setEditingService({ ...editingService, category_id: categoryValue });
-                              } else {
-                                setNewService({ ...newService, category_id: categoryValue });
-                              }
-                            }}
-                          >
-                            <SelectTrigger>
-                              <SelectValue placeholder="Selecione uma categoria" />
-                            </SelectTrigger>
-                            <SelectContent>
-                              <SelectItem value="none">Sem categoria</SelectItem>
-                              {categories.map((cat) => (
-                                <SelectItem key={cat.id} value={cat.id}>
-                                  {cat.name}
-                                </SelectItem>
-                              ))}
-                            </SelectContent>
-                          </Select>
+                          <div className="flex gap-2">
+                            <Select
+                              value={(editingService?.category_id || newService.category_id || 'none') === '' ? 'none' : (editingService?.category_id || newService.category_id || 'none')}
+                              onValueChange={(value) => {
+                                const categoryValue = value === 'none' ? '' : value;
+                                if (editingService) {
+                                  setEditingService({ ...editingService, category_id: categoryValue });
+                                } else {
+                                  setNewService({ ...newService, category_id: categoryValue });
+                                }
+                              }}
+                            >
+                              <SelectTrigger className="flex-1">
+                                <SelectValue placeholder="Selecione uma categoria" />
+                              </SelectTrigger>
+                              <SelectContent>
+                                <SelectItem value="none">Sem categoria</SelectItem>
+                                {categories.map((cat) => (
+                                  <SelectItem key={cat.id} value={cat.id}>
+                                    {cat.name}
+                                  </SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
+                            <Dialog open={isCategoryDialogOpen} onOpenChange={setIsCategoryDialogOpen}>
+                              <DialogTrigger asChild>
+                                <Button type="button" variant="outline" size="icon" title="Adicionar nova categoria">
+                                  <Plus className="h-4 w-4" />
+                                </Button>
+                              </DialogTrigger>
+                              <DialogContent className="w-[95vw] max-w-md p-4 sm:p-6">
+                                <DialogHeader>
+                                  <DialogTitle>Nova Categoria</DialogTitle>
+                                </DialogHeader>
+                                <div className="space-y-4 py-4">
+                                  <div>
+                                    <Label htmlFor="category-name">Nome da Categoria *</Label>
+                                    <Input
+                                      id="category-name"
+                                      value={newCategoryName}
+                                      onChange={(e) => setNewCategoryName(e.target.value)}
+                                      placeholder="Ex: Cílios, Unhas, etc."
+                                      onKeyDown={(e) => {
+                                        if (e.key === 'Enter') {
+                                          handleAddCategory();
+                                        }
+                                      }}
+                                    />
+                                  </div>
+                                </div>
+                                <DialogFooter>
+                                  <Button variant="outline" onClick={() => {
+                                    setIsCategoryDialogOpen(false);
+                                    setNewCategoryName('');
+                                  }}>
+                                    Cancelar
+                                  </Button>
+                                  <Button onClick={handleAddCategory}>
+                                    Adicionar
+                                  </Button>
+                                </DialogFooter>
+                              </DialogContent>
+                            </Dialog>
+                          </div>
                         </div>
                         <div className="md:col-span-2">
                           <Label htmlFor="service-short-description">Descrição Curta (opcional)</Label>
@@ -1696,11 +1781,11 @@ const Admin = () => {
           {/* Tab: Horários */}
           <TabsContent value="hours">
             <Card>
-              <CardHeader className="flex flex-row items-center justify-between flex-wrap gap-4">
-                <CardTitle className="font-serif">Gerenciar Horários Disponíveis</CardTitle>
-                <div className="flex gap-2">
+              <CardHeader className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+                <CardTitle className="font-serif text-lg sm:text-xl">Gerenciar Horários Disponíveis</CardTitle>
+                <div className="flex flex-col sm:flex-row gap-2 w-full sm:w-auto">
                   <Select value={hoursProfessionalFilter} onValueChange={setHoursProfessionalFilter}>
-                    <SelectTrigger className="w-[200px]">
+                    <SelectTrigger className="w-full sm:w-[200px] text-xs sm:text-sm">
                       <SelectValue placeholder="Filtrar por profissional" />
                   </SelectTrigger>
                   <SelectContent>
@@ -1713,12 +1798,13 @@ const Admin = () => {
                 </Select>
                   <Dialog open={isHourDialogOpen} onOpenChange={setIsHourDialogOpen}>
                     <DialogTrigger asChild>
-                      <Button>
-                        <Plus className="h-4 w-4 mr-2" />
-                        Adicionar Horário
+                      <Button size="sm" className="gap-2 text-xs sm:text-sm">
+                        <Plus className="h-3 w-3 sm:h-4 sm:w-4" />
+                        <span className="hidden xs:inline">Adicionar Horário</span>
+                        <span className="xs:hidden">Adicionar</span>
                       </Button>
                     </DialogTrigger>
-                    <DialogContent>
+                    <DialogContent className="w-[95vw] max-w-md max-h-[90vh] overflow-y-auto p-4 sm:p-6">
                       <DialogHeader>
                         <DialogTitle>Adicionar Horário</DialogTitle>
                       </DialogHeader>
@@ -1804,7 +1890,7 @@ const Admin = () => {
                       </div>
                     </DialogContent>
                   </Dialog>
-                  <Button onClick={loadAvailableHours} variant="outline" size="sm">
+                  <Button onClick={loadAvailableHours} variant="outline" size="sm" className="text-xs sm:text-sm">
                     Atualizar
                   </Button>
                 </div>
@@ -1815,14 +1901,14 @@ const Admin = () => {
                     <Loader2 className="h-8 w-8 animate-spin text-primary" />
                   </div>
                 ) : (
-                  <div className="overflow-x-auto">
+                  <div className="overflow-x-auto -mx-4 px-4 sm:mx-0 sm:px-0">
                 <Table>
                   <TableHeader>
                     <TableRow>
-                      <TableHead>Horário</TableHead>
-                          <TableHead>Profissional</TableHead>
-                      <TableHead>Status</TableHead>
-                          <TableHead>Ações</TableHead>
+                      <TableHead className="text-xs sm:text-sm">Horário</TableHead>
+                      <TableHead className="text-xs sm:text-sm">Profissional</TableHead>
+                      <TableHead className="text-xs sm:text-sm">Status</TableHead>
+                      <TableHead className="text-xs sm:text-sm">Ações</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
@@ -1835,21 +1921,21 @@ const Admin = () => {
                         ) : (
                           availableHours.map((hour) => (
                             <TableRow key={hour.id}>
-                              <TableCell className="font-medium">{hour.time}</TableCell>
-                          <TableCell>
+                              <TableCell className="font-medium text-xs sm:text-sm">{hour.time}</TableCell>
+                          <TableCell className="text-xs sm:text-sm">
                                 {hour.professional_id ? (
                                   <span>{hour.professionals?.name || 'Carregando...'}</span>
                                 ) : (
-                                  <Badge variant="secondary">Global</Badge>
+                                  <Badge variant="secondary" className="text-xs">Global</Badge>
                                 )}
                               </TableCell>
                               <TableCell>
-                                <Badge variant={hour.is_active ? 'default' : 'secondary'}>
+                                <Badge variant={hour.is_active ? 'default' : 'secondary'} className="text-xs">
                                   {hour.is_active ? 'Ativo' : 'Inativo'}
                                 </Badge>
                               </TableCell>
                               <TableCell>
-                                <div className="flex gap-2">
+                                <div className="flex flex-col sm:flex-row gap-2">
                                   <Button
                                     variant="outline"
                                     size="sm"
@@ -1870,8 +1956,9 @@ const Admin = () => {
                                     {hour.is_active ? 'Desativar' : 'Ativar'}
                                   </Button>
                                   <Button
-                                    variant="outline"
+                                    variant="destructive"
                                     size="sm"
+                                    className="text-xs sm:text-sm"
                                     onClick={async () => {
                                       if (!confirm('Tem certeza que deseja excluir este horário?')) return;
 
@@ -1888,7 +1975,7 @@ const Admin = () => {
                                       }
                                     }}
                                   >
-                                    <Trash2 className="h-4 w-4" />
+                                    <Trash2 className="h-3 w-3 sm:h-4 sm:w-4" />
                                   </Button>
                                 </div>
                               </TableCell>
@@ -1906,11 +1993,11 @@ const Admin = () => {
           {/* Tab: Bloqueios */}
           <TabsContent value="blocked">
             <Card>
-              <CardHeader className="flex flex-row items-center justify-between flex-wrap gap-4">
-                <CardTitle className="font-serif">Gerenciar Bloqueios de Agenda</CardTitle>
-                <div className="flex gap-2">
+              <CardHeader className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+                <CardTitle className="font-serif text-lg sm:text-xl">Gerenciar Bloqueios de Agenda</CardTitle>
+                <div className="flex flex-col sm:flex-row gap-2 w-full sm:w-auto">
                   <Select value={blockedProfessionalFilter} onValueChange={setBlockedProfessionalFilter}>
-                    <SelectTrigger className="w-[200px]">
+                    <SelectTrigger className="w-full sm:w-[200px] text-xs sm:text-sm">
                       <SelectValue placeholder="Filtrar por profissional" />
                     </SelectTrigger>
                     <SelectContent>
@@ -1922,12 +2009,13 @@ const Admin = () => {
                   </Select>
                   <Dialog open={isBlockedDialogOpen} onOpenChange={setIsBlockedDialogOpen}>
                     <DialogTrigger asChild>
-                      <Button size="sm" className="gap-2">
-                        <Plus className="h-4 w-4" />
-                        Adicionar Bloqueio
+                      <Button size="sm" className="gap-2 text-xs sm:text-sm">
+                        <Plus className="h-3 w-3 sm:h-4 sm:w-4" />
+                        <span className="hidden xs:inline">Adicionar Bloqueio</span>
+                        <span className="xs:hidden">Adicionar</span>
                       </Button>
                     </DialogTrigger>
-                    <DialogContent>
+                    <DialogContent className="w-[95vw] max-w-md max-h-[90vh] overflow-y-auto p-4 sm:p-6">
                       <DialogHeader>
                         <DialogTitle>Adicionar Bloqueio de Agenda</DialogTitle>
                       </DialogHeader>
@@ -2012,7 +2100,7 @@ const Admin = () => {
                       </div>
                     </DialogContent>
                   </Dialog>
-                  <Button onClick={loadBlockedSlots} variant="outline" size="sm">
+                  <Button onClick={loadBlockedSlots} variant="outline" size="sm" className="text-xs sm:text-sm">
                     Atualizar
                   </Button>
                 </div>
@@ -2023,15 +2111,15 @@ const Admin = () => {
                     <Loader2 className="h-8 w-8 animate-spin text-primary" />
                   </div>
                 ) : (
-                  <div className="overflow-x-auto">
+                  <div className="overflow-x-auto -mx-4 px-4 sm:mx-0 sm:px-0">
                     <Table>
                       <TableHeader>
                         <TableRow>
-                          <TableHead>Data</TableHead>
-                          <TableHead>Horário</TableHead>
-                          <TableHead>Profissional</TableHead>
-                          <TableHead>Motivo</TableHead>
-                          <TableHead>Ações</TableHead>
+                          <TableHead className="text-xs sm:text-sm">Data</TableHead>
+                          <TableHead className="text-xs sm:text-sm">Horário</TableHead>
+                          <TableHead className="text-xs sm:text-sm hidden sm:table-cell">Profissional</TableHead>
+                          <TableHead className="text-xs sm:text-sm hidden md:table-cell">Motivo</TableHead>
+                          <TableHead className="text-xs sm:text-sm">Ações</TableHead>
                         </TableRow>
                       </TableHeader>
                       <TableBody>
@@ -2046,20 +2134,20 @@ const Admin = () => {
                             const professional = blocked.professionals;
                             return (
                               <TableRow key={blocked.id}>
-                          <TableCell>
+                          <TableCell className="text-xs sm:text-sm">
                                   {formatDateString(blocked.blocked_date)}
                                 </TableCell>
                                 <TableCell>
                                   {blocked.blocked_time ? (
-                                    <Badge variant="outline">{blocked.blocked_time}</Badge>
+                                    <Badge variant="outline" className="text-xs">{blocked.blocked_time}</Badge>
                                   ) : (
-                                    <Badge variant="destructive">Dia inteiro</Badge>
+                                    <Badge variant="destructive" className="text-xs">Dia inteiro</Badge>
                                   )}
                                 </TableCell>
-                                <TableCell>
+                                <TableCell className="hidden sm:table-cell text-xs sm:text-sm">
                                   {professional?.name || 'N/A'}
                                 </TableCell>
-                                <TableCell>
+                                <TableCell className="hidden md:table-cell text-xs sm:text-sm">
                                   {blocked.reason || (
                                     <span className="text-muted-foreground">-</span>
                                   )}
@@ -2068,10 +2156,11 @@ const Admin = () => {
                                   <Button
                                     variant="ghost"
                                     size="icon"
+                                    className="h-8 w-8 sm:h-10 sm:w-10"
                                     onClick={() => handleDeleteBlocked(blocked.id)}
                                     title="Remover bloqueio"
                                   >
-                                    <Trash2 className="h-4 w-4 text-destructive" />
+                                    <Trash2 className="h-3 w-3 sm:h-4 sm:w-4 text-destructive" />
                                   </Button>
                           </TableCell>
                         </TableRow>
@@ -2092,14 +2181,15 @@ const Admin = () => {
                 <CardTitle className="font-serif">Lista de Clientes</CardTitle>
               </CardHeader>
               <CardContent>
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>Nome</TableHead>
-                      <TableHead>Telefone</TableHead>
-                      <TableHead>Total de Agendamentos</TableHead>
-                    </TableRow>
-                  </TableHeader>
+                <div className="overflow-x-auto -mx-4 px-4 sm:mx-0 sm:px-0">
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead className="text-xs sm:text-sm">Nome</TableHead>
+                        <TableHead className="text-xs sm:text-sm">Telefone</TableHead>
+                        <TableHead className="text-xs sm:text-sm">Total de Agendamentos</TableHead>
+                      </TableRow>
+                    </TableHeader>
                   <TableBody>
                     {uniqueClients.length === 0 ? (
                       <TableRow>
@@ -2114,74 +2204,30 @@ const Admin = () => {
                         );
                       return (
                           <TableRow key={index}>
-                            <TableCell className="font-medium">{client.name}</TableCell>
-                          <TableCell>
+                            <TableCell className="font-medium text-xs sm:text-sm">{client.name}</TableCell>
+                          <TableCell className="text-xs sm:text-sm">
                             <a
                                 href={`https://wa.me/55${client.phone.replace(/\D/g, '')}`}
                               target="_blank"
                               rel="noopener noreferrer"
                               className="text-primary hover:underline flex items-center gap-1"
                             >
-                              <Phone className="h-3 w-3" />
+                              <Phone className="h-3 w-3 sm:h-4 sm:w-4" />
                                 {client.phone}
                             </a>
                           </TableCell>
-                            <TableCell>{clientAppointments.length}</TableCell>
+                            <TableCell className="text-xs sm:text-sm">{clientAppointments.length}</TableCell>
                         </TableRow>
                       );
                       })
                     )}
                   </TableBody>
                 </Table>
+                </div>
               </CardContent>
             </Card>
           </TabsContent>
 
-          {/* Tab: Categorias */}
-          <TabsContent value="categories">
-            <Card>
-              <CardHeader className="flex flex-row items-center justify-between flex-wrap gap-4">
-                <CardTitle className="font-serif">Categorias de Serviços</CardTitle>
-                <Button onClick={loadCategories} variant="outline" size="sm">
-                  Atualizar
-                </Button>
-              </CardHeader>
-              <CardContent>
-                <div className="text-sm text-muted-foreground mb-4">
-                  As categorias ajudam a organizar os serviços no catálogo. Categorias padrão já foram criadas automaticamente.
-                </div>
-                <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-4">
-                  {categories.map((category) => (
-                    <Card key={category.id} className="p-4">
-                      <div className="flex items-center justify-between">
-                        <div className="flex items-center gap-3">
-                          {category.icon && (
-                            <div 
-                              className="w-10 h-10 rounded-full flex items-center justify-center"
-                              style={{ backgroundColor: category.color ? `${category.color}20` : undefined }}
-                            >
-                              <Tag className="h-5 w-5" style={{ color: category.color }} />
-                            </div>
-                          )}
-                          <div>
-                            <h4 className="font-semibold">{category.name}</h4>
-                            {category.description && (
-                              <p className="text-xs text-muted-foreground">{category.description}</p>
-                            )}
-                          </div>
-                        </div>
-                      </div>
-                    </Card>
-                  ))}
-                </div>
-                {categories.length === 0 && (
-                  <div className="text-center py-8 text-muted-foreground">
-                    Nenhuma categoria encontrada. Execute a migration para criar as categorias padrão.
-                  </div>
-                )}
-              </CardContent>
-            </Card>
-          </TabsContent>
         </Tabs>
       </main>
 
