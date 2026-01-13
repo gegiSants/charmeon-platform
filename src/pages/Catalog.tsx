@@ -3,13 +3,15 @@ import { useNavigate } from 'react-router-dom';
 import Header from '@/components/Header';
 import Footer from '@/components/Footer';
 import ServiceCatalogCard from '@/components/ServiceCatalogCard';
+import StudioInfo from '@/components/StudioInfo';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent } from '@/components/ui/card';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { supabase } from '@/integrations/supabase/client';
-import { Search, Filter, X, Sparkles, Loader2 } from 'lucide-react';
+import { Search, Filter, X, Sparkles, Loader2, Info } from 'lucide-react';
 import { Service } from '@/hooks/useAppointments';
 
 interface Category {
@@ -256,6 +258,46 @@ const Catalog = () => {
             </div>
           </>
         )}
+
+        {/* Seção de Informações do Estúdio */}
+        <div className="mt-16">
+          <div className="text-center mb-8">
+            <div className="inline-flex items-center justify-center w-16 h-16 rounded-full bg-primary/10 mb-4">
+              <Info className="h-8 w-8 text-primary" />
+            </div>
+            <h2 className="font-serif text-3xl md:text-4xl font-bold text-foreground mb-4">
+              Informações do Estúdio
+            </h2>
+            <p className="text-muted-foreground">
+              Conheça nossos protocolos, formas de pagamento e mais
+            </p>
+          </div>
+
+          <Tabs defaultValue="protocol" className="w-full">
+            <TabsList className="grid w-full grid-cols-4 mb-6">
+              <TabsTrigger value="protocol">Protocolo</TabsTrigger>
+              <TabsTrigger value="biosecurity">Biossegurança</TabsTrigger>
+              <TabsTrigger value="payment">Pagamento</TabsTrigger>
+              <TabsTrigger value="address">Endereço</TabsTrigger>
+            </TabsList>
+            
+            <TabsContent value="protocol">
+              <StudioInfo showSections={['protocol']} />
+            </TabsContent>
+            
+            <TabsContent value="biosecurity">
+              <StudioInfo showSections={['biosecurity']} />
+            </TabsContent>
+            
+            <TabsContent value="payment">
+              <StudioInfo showSections={['payment']} />
+            </TabsContent>
+            
+            <TabsContent value="address">
+              <StudioInfo showSections={['address']} />
+            </TabsContent>
+          </Tabs>
+        </div>
       </main>
 
       <Footer />

@@ -14,7 +14,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Badge } from '@/components/ui/badge';
 import { useProfessionals, useServices } from '@/hooks/useAppointments';
 import { supabase } from '@/integrations/supabase/client';
-import { Plus, Users, Scissors, Calendar, List, Phone, Clock, Trash2, Edit, Loader2, CheckCircle, XCircle, DollarSign, Mail, Ban, Upload, X, Tag } from 'lucide-react';
+import { Plus, Users, Scissors, Calendar, List, Phone, Clock, Trash2, Edit, Loader2, CheckCircle, XCircle, DollarSign, Mail, Ban, Upload, X, Tag, Sparkles, MapPin, Instagram, Shield, CreditCard, FileText } from 'lucide-react';
 import { toast } from 'sonner';
 import { format } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
@@ -100,7 +100,7 @@ const Admin = () => {
   const [availableHours, setAvailableHours] = useState<any[]>([]);
   const [loadingHours, setLoadingHours] = useState(false);
   const [hoursProfessionalFilter, setHoursProfessionalFilter] = useState<string>('all');
-  const [newHour, setNewHour] = useState({ time: '', professionalId: 'global' });
+  const [newHour, setNewHour] = useState({ time: '', professionalId: '' });
   const [isHourDialogOpen, setIsHourDialogOpen] = useState(false);
   
   // Estados para gerenciamento de bloqueios
@@ -109,6 +109,11 @@ const Admin = () => {
   const [blockedProfessionalFilter, setBlockedProfessionalFilter] = useState<string>('all');
   const [newBlocked, setNewBlocked] = useState({ date: '', time: '', professionalId: '', reason: '' });
   const [isBlockedDialogOpen, setIsBlockedDialogOpen] = useState(false);
+  
+  // Estados para informações do estúdio
+  const [studioInfo, setStudioInfo] = useState<any>(null);
+  const [loadingStudioInfo, setLoadingStudioInfo] = useState(false);
+  const [savingStudioInfo, setSavingStudioInfo] = useState(false);
 
   // Verificar configuração do Supabase
   useEffect(() => {
@@ -179,7 +184,94 @@ const Admin = () => {
 
   useEffect(() => {
     loadCategories();
+    loadStudioInfo();
   }, []);
+
+  const loadStudioInfo = async () => {
+    setLoadingStudioInfo(true);
+    try {
+      const { data, error } = await supabase
+        .from('studio_info')
+        .select('*')
+        .limit(1)
+        .maybeSingle();
+
+      if (error && error.code !== 'PGRST116') {
+        console.error('Error loading studio info:', error);
+        // Se não existir, criar objeto vazio com valores padrão
+        setStudioInfo({
+          phone: '+55 11 99027-8446',
+          instagram: '@studio_ingridl',
+          payment_methods: ['PIX', 'Cartão de Crédito', 'Cartão de Débito', 'Dinheiro']
+        });
+      } else {
+        setStudioInfo(data || {
+          phone: '+55 11 99027-8446',
+          instagram: '@studio_ingridl',
+          payment_methods: ['PIX', 'Cartão de Crédito', 'Cartão de Débito', 'Dinheiro']
+        });
+      }
+    } catch (error) {
+      console.error('Error loading studio info:', error);
+      setStudioInfo({
+        phone: '+55 11 99027-8446',
+        instagram: '@studio_ingridl',
+        payment_methods: ['PIX', 'Cartão de Crédito', 'Cartão de Débito', 'Dinheiro']
+      });
+    } finally {
+      setLoadingStudioInfo(false);
+    }
+  };
+
+  const handleSaveStudioInfo = async () => {
+    if (!studioInfo) return;
+
+    setSavingStudioInfo(true);
+    try {
+      // Verificar se já existe registro
+      const { data: existing } = await supabase
+        .from('studio_info')
+        .select('id')
+        .limit(1)
+        .maybeSingle();
+
+      const dataToSave = {
+        ...studioInfo,
+        payment_methods: typeof studioInfo.payment_methods === 'string' 
+          ? JSON.parse(studioInfo.payment_methods) 
+          : (Array.isArray(studioInfo.payment_methods) ? studioInfo.payment_methods : ['PIX', 'Cartão de Crédito', 'Cartão de Débito', 'Dinheiro'])
+      };
+
+      let error;
+      if (existing?.id) {
+        // Atualizar
+        const { error: updateError } = await supabase
+          .from('studio_info')
+          .update(dataToSave)
+          .eq('id', existing.id);
+        error = updateError;
+      } else {
+        // Inserir
+        const { error: insertError } = await supabase
+          .from('studio_info')
+          .insert(dataToSave);
+        error = insertError;
+      }
+
+      if (error) {
+        console.error('Error saving studio info:', error);
+        toast.error('Erro ao salvar informações do estúdio');
+      } else {
+        toast.success('Informações do estúdio salvas com sucesso!');
+        loadStudioInfo();
+      }
+    } catch (error) {
+      console.error('Error saving studio info:', error);
+      toast.error('Erro ao salvar informações do estúdio');
+    } finally {
+      setSavingStudioInfo(false);
+    }
+  };
 
   // Carregar agendamentos
   useEffect(() => {
@@ -196,10 +288,11 @@ const Admin = () => {
       let query = supabase
         .from('available_hours')
         .select('*, professionals:professional_id(id, name)')
+        .not('professional_id', 'is', null) // Apenas horários com profissional específica
         .order('time');
 
       if (hoursProfessionalFilter !== 'all') {
-        query = query.or(`professional_id.eq.${hoursProfessionalFilter},professional_id.is.null`);
+        query = query.eq('professional_id', hoursProfessionalFilter);
       }
 
       const { data, error: queryError } = await query;
@@ -889,6 +982,11 @@ const Admin = () => {
                 <List className="h-3 w-3 sm:h-4 sm:w-4" />
                 <span className="hidden xs:inline">Clientes</span>
                 <span className="xs:hidden">Cli.</span>
+              </TabsTrigger>
+              <TabsTrigger value="studio" className="gap-1 sm:gap-2 text-xs sm:text-sm whitespace-nowrap">
+                <Sparkles className="h-3 w-3 sm:h-4 sm:w-4" />
+                <span className="hidden xs:inline">Estúdio</span>
+                <span className="xs:hidden">Est.</span>
               </TabsTrigger>
             </TabsList>
           </div>
@@ -1789,8 +1887,7 @@ const Admin = () => {
                       <SelectValue placeholder="Filtrar por profissional" />
                   </SelectTrigger>
                   <SelectContent>
-                      <SelectItem value="all">Todos (Globais + Específicos)</SelectItem>
-                      <SelectItem value="global">Apenas Globais</SelectItem>
+                      <SelectItem value="all">Todas as profissionais</SelectItem>
                     {professionals.map((pro) => (
                       <SelectItem key={pro.id} value={pro.id}>{pro.name}</SelectItem>
                     ))}
@@ -1824,23 +1921,22 @@ const Admin = () => {
                           </p>
                         </div>
                         <div>
-                          <Label htmlFor="hour-professional">Profissional</Label>
+                          <Label htmlFor="hour-professional">Profissional *</Label>
                           <Select
                             value={newHour.professionalId}
                             onValueChange={(value) => setNewHour({ ...newHour, professionalId: value })}
                           >
                             <SelectTrigger>
-                              <SelectValue placeholder="Global (para todos)" />
+                              <SelectValue placeholder="Selecione uma profissional" />
                             </SelectTrigger>
                             <SelectContent>
-                              <SelectItem value="global">Global (para todos)</SelectItem>
                               {professionals.map((pro) => (
                                 <SelectItem key={pro.id} value={pro.id}>{pro.name}</SelectItem>
                               ))}
                             </SelectContent>
                           </Select>
                           <p className="text-xs text-muted-foreground mt-1">
-                            Selecione "Global" para horário disponível para todos
+                            Selecione a profissional para este horário
                           </p>
                         </div>
                         <DialogFooter>
@@ -1848,7 +1944,7 @@ const Admin = () => {
                             variant="outline"
                             onClick={() => {
                               setIsHourDialogOpen(false);
-                              setNewHour({ time: '', professionalId: 'global' });
+                              setNewHour({ time: '', professionalId: '' });
                             }}
                           >
                             Cancelar
@@ -1860,14 +1956,16 @@ const Admin = () => {
                                 return;
                               }
 
+                              if (!newHour.professionalId) {
+                                toast.error('Selecione uma profissional');
+                                return;
+                              }
+
                               const hourData: any = {
                                 time: newHour.time,
+                                professional_id: newHour.professionalId,
                                 is_active: true,
                               };
-
-                              if (newHour.professionalId && newHour.professionalId !== 'global') {
-                                hourData.professional_id = newHour.professionalId;
-                              }
 
                               const { error } = await supabase
                                 .from('available_hours')
@@ -1879,7 +1977,7 @@ const Admin = () => {
                               } else {
                                 toast.success('Horário adicionado!');
                                 setIsHourDialogOpen(false);
-                                setNewHour({ time: '', professionalId: 'global' });
+                                setNewHour({ time: '', professionalId: '' });
                                 loadAvailableHours();
                               }
                             }}
@@ -2224,6 +2322,343 @@ const Admin = () => {
                   </TableBody>
                 </Table>
                 </div>
+              </CardContent>
+            </Card>
+          </TabsContent>
+
+          {/* Tab: Informações do Estúdio */}
+          <TabsContent value="studio">
+            <Card>
+              <CardHeader>
+                <CardTitle className="font-serif">Informações do Estúdio</CardTitle>
+                <p className="text-sm text-muted-foreground mt-2">
+                  Edite as informações que aparecem no catálogo para os clientes
+                </p>
+              </CardHeader>
+              <CardContent>
+                {loadingStudioInfo ? (
+                  <div className="flex justify-center py-8">
+                    <Loader2 className="h-8 w-8 animate-spin text-primary" />
+                  </div>
+                ) : studioInfo ? (
+                  <div className="space-y-6 max-w-4xl">
+                    {/* Contato */}
+                    <div className="space-y-4">
+                      <h3 className="font-semibold text-lg flex items-center gap-2">
+                        <Phone className="h-5 w-5 text-primary" />
+                        Contato
+                      </h3>
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div>
+                          <Label htmlFor="studio-phone">Telefone *</Label>
+                          <Input
+                            id="studio-phone"
+                            value={studioInfo.phone || ''}
+                            onChange={(e) => setStudioInfo({ ...studioInfo, phone: e.target.value })}
+                            placeholder="+55 11 99027-8446"
+                          />
+                        </div>
+                        <div>
+                          <Label htmlFor="studio-instagram">Instagram</Label>
+                          <Input
+                            id="studio-instagram"
+                            value={studioInfo.instagram || ''}
+                            onChange={(e) => setStudioInfo({ ...studioInfo, instagram: e.target.value })}
+                            placeholder="@studio_ingridl"
+                          />
+                        </div>
+                        <div>
+                          <Label htmlFor="studio-email">Email</Label>
+                          <Input
+                            id="studio-email"
+                            type="email"
+                            value={studioInfo.email || ''}
+                            onChange={(e) => setStudioInfo({ ...studioInfo, email: e.target.value })}
+                            placeholder="contato@studio.com"
+                          />
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Endereço */}
+                    <div className="space-y-4">
+                      <h3 className="font-semibold text-lg flex items-center gap-2">
+                        <MapPin className="h-5 w-5 text-primary" />
+                        Endereço
+                      </h3>
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div className="md:col-span-2">
+                          <Label htmlFor="studio-address">Endereço</Label>
+                          <Input
+                            id="studio-address"
+                            value={studioInfo.address || ''}
+                            onChange={(e) => setStudioInfo({ ...studioInfo, address: e.target.value })}
+                            placeholder="Rua Dr. Rafael de Araújo Ribeiro"
+                          />
+                        </div>
+                        <div>
+                          <Label htmlFor="studio-complement">Complemento</Label>
+                          <Input
+                            id="studio-complement"
+                            value={studioInfo.address_complement || ''}
+                            onChange={(e) => setStudioInfo({ ...studioInfo, address_complement: e.target.value })}
+                            placeholder="Apto, Sala, etc"
+                          />
+                        </div>
+                        <div>
+                          <Label htmlFor="studio-neighborhood">Bairro</Label>
+                          <Input
+                            id="studio-neighborhood"
+                            value={studioInfo.neighborhood || ''}
+                            onChange={(e) => setStudioInfo({ ...studioInfo, neighborhood: e.target.value })}
+                            placeholder="Jaraguá - Zona Oeste"
+                          />
+                        </div>
+                        <div>
+                          <Label htmlFor="studio-city">Cidade</Label>
+                          <Input
+                            id="studio-city"
+                            value={studioInfo.city || ''}
+                            onChange={(e) => setStudioInfo({ ...studioInfo, city: e.target.value })}
+                            placeholder="São Paulo"
+                          />
+                        </div>
+                        <div>
+                          <Label htmlFor="studio-state">Estado</Label>
+                          <Input
+                            id="studio-state"
+                            value={studioInfo.state || ''}
+                            onChange={(e) => setStudioInfo({ ...studioInfo, state: e.target.value })}
+                            placeholder="SP"
+                            maxLength={2}
+                          />
+                        </div>
+                        <div>
+                          <Label htmlFor="studio-zip">CEP</Label>
+                          <Input
+                            id="studio-zip"
+                            value={studioInfo.zip_code || ''}
+                            onChange={(e) => setStudioInfo({ ...studioInfo, zip_code: e.target.value })}
+                            placeholder="00000-000"
+                          />
+                        </div>
+                        <div className="md:col-span-2">
+                          <Label htmlFor="studio-maps">Link Google Maps (opcional)</Label>
+                          <Input
+                            id="studio-maps"
+                            type="url"
+                            value={studioInfo.google_maps_url || ''}
+                            onChange={(e) => setStudioInfo({ ...studioInfo, google_maps_url: e.target.value })}
+                            placeholder="https://maps.google.com/..."
+                          />
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Horários */}
+                    <div className="space-y-4">
+                      <h3 className="font-semibold text-lg flex items-center gap-2">
+                        <Clock className="h-5 w-5 text-primary" />
+                        Horários de Atendimento
+                      </h3>
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div>
+                          <Label htmlFor="studio-hours">Horário de Atendimento</Label>
+                          <Input
+                            id="studio-hours"
+                            value={studioInfo.business_hours || ''}
+                            onChange={(e) => setStudioInfo({ ...studioInfo, business_hours: e.target.value })}
+                            placeholder="Segunda a Sábado das 07h às 16h com horário marcado"
+                          />
+                        </div>
+                        <div>
+                          <Label htmlFor="studio-saturday">Nota sobre Sábado</Label>
+                          <Input
+                            id="studio-saturday"
+                            value={studioInfo.saturday_note || ''}
+                            onChange={(e) => setStudioInfo({ ...studioInfo, saturday_note: e.target.value })}
+                            placeholder="(sábado tendo alterações de horário)"
+                          />
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Protocolo */}
+                    <div className="space-y-4">
+                      <h3 className="font-semibold text-lg flex items-center gap-2">
+                        <FileText className="h-5 w-5 text-primary" />
+                        Protocolo de Atendimentos
+                      </h3>
+                      <div className="space-y-4">
+                        <div>
+                          <Label htmlFor="studio-rescheduling">Política de Remarcação</Label>
+                          <Textarea
+                            id="studio-rescheduling"
+                            value={studioInfo.rescheduling_policy || ''}
+                            onChange={(e) => setStudioInfo({ ...studioInfo, rescheduling_policy: e.target.value })}
+                            placeholder="Em caso de imprevisto: Avisar 48h antes..."
+                            rows={3}
+                          />
+                        </div>
+                        <div>
+                          <Label htmlFor="studio-cancellation">Política de Cancelamento</Label>
+                          <Textarea
+                            id="studio-cancellation"
+                            value={studioInfo.cancellation_policy || ''}
+                            onChange={(e) => setStudioInfo({ ...studioInfo, cancellation_policy: e.target.value })}
+                            placeholder="Em caso de atraso ou não comparecimento..."
+                            rows={3}
+                          />
+                        </div>
+                        <div>
+                          <Label htmlFor="studio-late">Política de Atrasos</Label>
+                          <Textarea
+                            id="studio-late"
+                            value={studioInfo.late_policy || ''}
+                            onChange={(e) => setStudioInfo({ ...studioInfo, late_policy: e.target.value })}
+                            placeholder="ATRASOS: Não temos tolerância de atraso..."
+                            rows={3}
+                          />
+                        </div>
+                        <div>
+                          <Label htmlFor="studio-deposit">Política de Sinal</Label>
+                          <Textarea
+                            id="studio-deposit"
+                            value={studioInfo.deposit_policy || ''}
+                            onChange={(e) => setStudioInfo({ ...studioInfo, deposit_policy: e.target.value })}
+                            placeholder="Sinal: nenhum valor de agendamento é ressarcido..."
+                            rows={2}
+                          />
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Biossegurança */}
+                    <div className="space-y-4">
+                      <h3 className="font-semibold text-lg flex items-center gap-2">
+                        <Shield className="h-5 w-5 text-primary" />
+                        Biossegurança
+                      </h3>
+                      <div className="space-y-4">
+                        <div>
+                          <Label htmlFor="studio-biosecurity-title">Título</Label>
+                          <Input
+                            id="studio-biosecurity-title"
+                            value={studioInfo.biosecurity_title || ''}
+                            onChange={(e) => setStudioInfo({ ...studioInfo, biosecurity_title: e.target.value })}
+                            placeholder="Biossegurança"
+                          />
+                        </div>
+                        <div>
+                          <Label htmlFor="studio-biosecurity-desc">Descrição</Label>
+                          <Textarea
+                            id="studio-biosecurity-desc"
+                            value={studioInfo.biosecurity_description || ''}
+                            onChange={(e) => setStudioInfo({ ...studioInfo, biosecurity_description: e.target.value })}
+                            placeholder="Nossa saúde não tem preço..."
+                            rows={4}
+                          />
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Formas de Pagamento */}
+                    <div className="space-y-4">
+                      <h3 className="font-semibold text-lg flex items-center gap-2">
+                        <CreditCard className="h-5 w-5 text-primary" />
+                        Formas de Pagamento
+                      </h3>
+                      <div className="space-y-4">
+                        <div>
+                          <Label htmlFor="studio-payment-note">Nota sobre Pagamento</Label>
+                          <Textarea
+                            id="studio-payment-note"
+                            value={studioInfo.payment_note || ''}
+                            onChange={(e) => setStudioInfo({ ...studioInfo, payment_note: e.target.value })}
+                            placeholder="Lembrando que cartão de crédito e débito tem acréscimo..."
+                            rows={2}
+                          />
+                        </div>
+                        <div>
+                          <Label>Formas de Pagamento Aceitas</Label>
+                          <div className="flex flex-wrap gap-2 mt-2">
+                            {['PIX', 'Cartão de Crédito', 'Cartão de Débito', 'Dinheiro'].map((method) => {
+                              const methods = Array.isArray(studioInfo.payment_methods) 
+                                ? studioInfo.payment_methods 
+                                : (typeof studioInfo.payment_methods === 'string' 
+                                  ? JSON.parse(studioInfo.payment_methods || '[]') 
+                                  : []);
+                              const isSelected = methods.includes(method);
+                              return (
+                                <Badge
+                                  key={method}
+                                  variant={isSelected ? 'default' : 'outline'}
+                                  className="cursor-pointer"
+                                  onClick={() => {
+                                    const currentMethods = Array.isArray(studioInfo.payment_methods) 
+                                      ? studioInfo.payment_methods 
+                                      : (typeof studioInfo.payment_methods === 'string' 
+                                        ? JSON.parse(studioInfo.payment_methods || '[]') 
+                                        : []);
+                                    const newMethods = isSelected
+                                      ? currentMethods.filter((m: string) => m !== method)
+                                      : [...currentMethods, method];
+                                    setStudioInfo({ ...studioInfo, payment_methods: newMethods });
+                                  }}
+                                >
+                                  {method}
+                                </Badge>
+                              );
+                            })}
+                          </div>
+                          <p className="text-xs text-muted-foreground mt-2">
+                            PIX é usado para o sinal via sistema. Outros métodos podem ser usados pessoalmente após o sinal.
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Sobre */}
+                    <div className="space-y-4">
+                      <h3 className="font-semibold text-lg">Sobre o Estúdio</h3>
+                      <div>
+                        <Label htmlFor="studio-about">Texto sobre o Estúdio</Label>
+                        <Textarea
+                          id="studio-about"
+                          value={studioInfo.about_text || ''}
+                          onChange={(e) => setStudioInfo({ ...studioInfo, about_text: e.target.value })}
+                          placeholder="Especialistas em realçar sua beleza natural..."
+                          rows={4}
+                        />
+                      </div>
+                    </div>
+
+                    {/* Botão Salvar */}
+                    <div className="flex justify-end pt-4 border-t">
+                      <Button 
+                        onClick={handleSaveStudioInfo}
+                        disabled={savingStudioInfo}
+                        size="lg"
+                        className="gap-2"
+                      >
+                        {savingStudioInfo ? (
+                          <>
+                            <Loader2 className="h-4 w-4 animate-spin" />
+                            Salvando...
+                          </>
+                        ) : (
+                          <>
+                            Salvar Informações
+                          </>
+                        )}
+                      </Button>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="text-center py-8 text-muted-foreground">
+                    Carregando informações...
+                  </div>
+                )}
               </CardContent>
             </Card>
           </TabsContent>
