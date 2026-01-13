@@ -14,8 +14,10 @@ export default {
     },
     extend: {
       fontFamily: {
-        sans: ['Poppins', 'sans-serif'],
-        serif: ['Playfair Display', 'serif'],
+        sans: ['Inter', 'Poppins', 'sans-serif'], // Textos e botões - Inter como padrão
+        serif: ['Poppins', 'Playfair Display', 'serif'], // Títulos - Poppins como padrão
+        heading: ['Poppins', 'Montserrat', 'sans-serif'], // Classe alternativa para títulos
+        body: ['Inter', 'Poppins', 'sans-serif'], // Classe alternativa para textos
       },
       colors: {
         border: "hsl(var(--border))",
