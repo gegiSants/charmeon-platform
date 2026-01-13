@@ -49,15 +49,12 @@ const Booking = () => {
   const currentStepIndex = stepOrder.indexOf(step);
 
   // Pré-selecionar profissional e serviço se vier do catálogo
+  // IMPORTANTE: Sempre começar no step 'info' para o cliente preencher dados
   useEffect(() => {
     if (preselectedData?.preselectedProfessional && professionals.length > 0) {
       setSelectedProfessional(preselectedData.preselectedProfessional);
-      // Se também tem serviço pré-selecionado, ir direto para o passo de serviço
-      if (preselectedData.preselectedService) {
-        setStep('service');
-      } else {
-        setStep('professional');
-      }
+      // NÃO mudar o step aqui - sempre começar em 'info'
+      // Os valores serão pré-selecionados quando o cliente avançar
     }
   }, [preselectedData, professionals]);
 
