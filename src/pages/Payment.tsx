@@ -4,7 +4,6 @@ import Header from '@/components/Header';
 import Footer from '@/components/Footer';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { Label } from '@/components/ui/label';
 import { format } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
@@ -16,7 +15,7 @@ const Payment = () => {
   const location = useLocation();
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
-  const [paymentType, setPaymentType] = useState<'sinal' | 'total'>('sinal');
+  // Sempre pagamento de sinal (30%)
   const [isProcessing, setIsProcessing] = useState(false);
 
   const canceled = searchParams.get('canceled');
@@ -25,8 +24,8 @@ const Payment = () => {
     appointmentId: string;
     clientName: string;
     clientPhone: string;
-    professional: { id: string; name: string };
-    service: { id: string; name: string; price: number };
+    professional: { id: string; name: string; sinal_padrao?: number | null };
+    service: { id: string; name: string; price: number; sinal_fixo?: number | null };
     date: Date;
     time: string;
   } | null;
@@ -47,9 +46,22 @@ const Payment = () => {
   }
 
   const totalValue = Number(bookingData.service.price);
-  const sinalValue = totalValue * 0.3;
+  
+  // Calcular valor do sinal:
+  // 1. Se o serviço tem sinal_fixo, usa esse valor
+  // 2. Senão, se a profissional tem sinal_padrao, usa esse valor
+  // 3. Senão, usa 30% do valor total
+  let sinalValue: number;
+  if (bookingData.service.sinal_fixo && bookingData.service.sinal_fixo > 0) {
+    sinalValue = bookingData.service.sinal_fixo;
+  } else if (bookingData.professional.sinal_padrao && bookingData.professional.sinal_padrao > 0) {
+    sinalValue = bookingData.professional.sinal_padrao;
+  } else {
+    sinalValue = totalValue * 0.3; // Padrão: 30%
+  }
+  
   const restanteValue = totalValue - sinalValue;
-  const amount = paymentType === 'sinal' ? sinalValue : totalValue;
+  const amount = sinalValue;
 
   const handlePayment = async () => {
     setIsProcessing(true);
@@ -76,7 +88,7 @@ const Payment = () => {
           clientPhone: bookingData.clientPhone,
           serviceName: bookingData.service.name,
           amount: amount,
-          paymentType: paymentType,
+          paymentType: 'sinal',
           professionalName: bookingData.professional.name,
           appointmentDate: format(new Date(bookingData.date), "dd/MM/yyyy", { locale: ptBR }),
           appointmentTime: bookingData.time,
@@ -96,9 +108,9 @@ const Payment = () => {
         navigate('/pagamento-sucesso', {
           state: {
             ...bookingData,
-            paymentType: paymentType,
+            paymentType: 'sinal',
             amountPaid: amount,
-            restante: paymentType === 'sinal' ? restanteValue : 0,
+            restante: restanteValue,
           },
         });
         return;
@@ -123,7 +135,7 @@ const Payment = () => {
           qrCodeBase64: data.qrCodeBase64,
           ticketUrl: data.ticketUrl,
           amount: amount,
-          restante: paymentType === 'sinal' ? restanteValue : 0,
+          restante: restanteValue,
         },
       });
     } catch (error) {
@@ -176,21 +188,11 @@ const Payment = () => {
                 </div>
               </div>
 
-              {/* Opções de Pagamento */}
+              {/* Opção de Pagamento - Apenas Sinal */}
               <div className="mb-6">
-                <h4 className="font-semibold mb-4">Escolha como pagar:</h4>
-                <RadioGroup
-                  value={paymentType}
-                  onValueChange={(value) => setPaymentType(value as 'sinal' | 'total')}
-                  className="space-y-3"
-                >
-                  <Label
-                    htmlFor="sinal"
-                    className={`flex items-center gap-4 p-4 rounded-lg border cursor-pointer transition-colors ${
-                      paymentType === 'sinal' ? 'border-primary bg-accent/30' : 'border-border'
-                    }`}
-                  >
-                    <RadioGroupItem value="sinal" id="sinal" />
+                <h4 className="font-semibold mb-4">Forma de Pagamento:</h4>
+                <div className="p-4 rounded-lg border border-primary bg-accent/30">
+                  <div className="flex items-center gap-4">
                     <div className="flex-1">
                       <div className="flex items-center gap-2">
                         <Link2 className="h-4 w-4 text-primary" />
@@ -204,30 +206,8 @@ const Payment = () => {
                       </p>
                     </div>
                     <span className="font-semibold text-primary">R$ {sinalValue.toFixed(2)}</span>
-                  </Label>
-
-                  <Label
-                    htmlFor="total"
-                    className={`flex items-center gap-4 p-4 rounded-lg border cursor-pointer transition-colors ${
-                      paymentType === 'total' ? 'border-primary bg-accent/30' : 'border-border'
-                    }`}
-                  >
-                    <RadioGroupItem value="total" id="total" />
-                    <div className="flex-1">
-                      <div className="flex items-center gap-2">
-                        <Link2 className="h-4 w-4 text-primary" />
-                        <span className="font-medium">Pagar Total - PIX</span>
-                      </div>
-                      <p className="text-sm text-muted-foreground mt-1">
-                        Pague o valor integral agora via PIX
-                      </p>
-                      <p className="text-xs text-primary mt-1 font-medium">
-                        💰 Sem taxas adicionais
-                      </p>
-                    </div>
-                    <span className="font-semibold text-primary">R$ {totalValue.toFixed(2)}</span>
-                  </Label>
-                </RadioGroup>
+                  </div>
+                </div>
               </div>
 
               {/* Informativo */}

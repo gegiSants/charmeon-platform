@@ -4,11 +4,47 @@ import { Card, CardContent } from '@/components/ui/card';
 import Header from '@/components/Header';
 import Footer from '@/components/Footer';
 import ProfessionalCard from '@/components/ProfessionalCard';
-import { useProfessionals } from '@/hooks/useAppointments';
+import { useProfessionals, useServices } from '@/hooks/useAppointments';
 import { Calendar, Sparkles, Heart, Shield, MapPin, Coffee, Loader2 } from 'lucide-react';
+import ServiceCatalogCard from '@/components/ServiceCatalogCard';
+import { useState, useEffect } from 'react';
+import { supabase } from '@/integrations/supabase/client';
 
 const Index = () => {
   const { professionals, loading } = useProfessionals();
+  const [featuredServices, setFeaturedServices] = useState<any[]>([]);
+  const [loadingServices, setLoadingServices] = useState(true);
+
+  useEffect(() => {
+    const loadFeaturedServices = async () => {
+      setLoadingServices(true);
+      try {
+        const { data, error } = await supabase
+          .from('services')
+          .select(`
+            *,
+            professionals:professional_id (name, photo_url),
+            categories:category_id (id, name, description, icon, color)
+          `)
+          .eq('is_featured', true)
+          .order('display_order')
+          .order('name')
+          .limit(8);
+
+        if (error) {
+          console.error('Error loading featured services:', error);
+        } else {
+          setFeaturedServices(data || []);
+        }
+      } catch (error) {
+        console.error('Error loading featured services:', error);
+      } finally {
+        setLoadingServices(false);
+      }
+    };
+
+    loadFeaturedServices();
+  }, []);
 
   return (
     <div className="min-h-screen bg-background">
@@ -124,35 +160,55 @@ const Index = () => {
         </div>
       </section>
 
-      {/* Serviços Destaque */}
+      {/* Catálogo de Serviços */}
       <section className="py-16 bg-gradient-to-b from-background to-secondary/30">
         <div className="container mx-auto px-4">
           <div className="text-center mb-12">
             <h2 className="font-serif text-2xl md:text-3xl font-semibold text-foreground mb-4">
               <Sparkles className="inline h-6 w-6 text-primary mr-2" />
-              Serviços em Destaque
+              Catálogo de Serviços
             </h2>
+            <p className="text-muted-foreground max-w-2xl mx-auto">
+              Explore nossos procedimentos e encontre o serviço perfeito para você
+            </p>
           </div>
-          <div className="grid md:grid-cols-2 lg:grid-cols-4 gap-4 max-w-4xl mx-auto">
-            {[
-              { name: 'Alongamento Fio a Fio', price: 'R$ 150' },
-              { name: 'Volume Russo', price: 'R$ 200' },
-              { name: 'Unhas em Gel', price: 'R$ 120' },
-              { name: 'Manutenção Cílios', price: 'R$ 80' },
-            ].map((service, index) => (
-              <Card key={index} className="hover:shadow-md transition-shadow">
-                <CardContent className="p-4 text-center">
-                  <h4 className="font-medium text-foreground mb-2">{service.name}</h4>
-                  <p className="text-primary font-semibold">{service.price}</p>
-                </CardContent>
-              </Card>
-            ))}
-          </div>
-          <div className="text-center mt-8">
-            <Link to="/agendar">
-              <Button size="lg">Ver todos os serviços</Button>
-            </Link>
-          </div>
+          
+          {loadingServices ? (
+            <div className="flex justify-center py-12">
+              <Loader2 className="h-8 w-8 animate-spin text-primary" />
+            </div>
+          ) : featuredServices.length > 0 ? (
+            <>
+              <div className="grid md:grid-cols-2 lg:grid-cols-4 gap-6 max-w-7xl mx-auto mb-8">
+                {featuredServices.map((service) => (
+                  <ServiceCatalogCard key={service.id} service={service} />
+                ))}
+              </div>
+              <div className="text-center mt-8">
+                <Link to="/catalogo">
+                  <Button size="lg" variant="outline" className="mr-4">
+                    Ver Catálogo Completo
+                  </Button>
+                </Link>
+                <Link to="/agendar">
+                  <Button size="lg">
+                    Agendar Agora
+                  </Button>
+                </Link>
+              </div>
+            </>
+          ) : (
+            <div className="text-center py-12">
+              <p className="text-muted-foreground mb-4">
+                Nenhum serviço em destaque no momento
+              </p>
+              <Link to="/catalogo">
+                <Button size="lg" variant="outline">
+                  Ver Catálogo Completo
+                </Button>
+              </Link>
+            </div>
+          )}
         </div>
       </section>
 

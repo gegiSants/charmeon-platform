@@ -4,6 +4,8 @@ import Footer from '@/components/Footer';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { Textarea } from '@/components/ui/textarea';
+import { Checkbox } from '@/components/ui/checkbox';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
@@ -12,7 +14,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Badge } from '@/components/ui/badge';
 import { useProfessionals, useServices } from '@/hooks/useAppointments';
 import { supabase } from '@/integrations/supabase/client';
-import { Plus, Users, Scissors, Calendar, List, Phone, Clock, Trash2, Edit, Loader2, CheckCircle, XCircle, DollarSign, Mail, Ban, Upload, X } from 'lucide-react';
+import { Plus, Users, Scissors, Calendar, List, Phone, Clock, Trash2, Edit, Loader2, CheckCircle, XCircle, DollarSign, Mail, Ban, Upload, X, Tag } from 'lucide-react';
 import { toast } from 'sonner';
 import { format } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
@@ -63,13 +65,28 @@ const Admin = () => {
   const [loadingAppointments, setLoadingAppointments] = useState(false);
   const [services, setServices] = useState<any[]>([]);
   const [loadingServices, setLoadingServices] = useState(false);
+  const [categories, setCategories] = useState<any[]>([]);
   const [error, setError] = useState<string | null>(null);
   
   // Estados para formulários
-  const [newProfessional, setNewProfessional] = useState({ name: '', specialty: '', phone: '', photo_url: '' });
+  const [newProfessional, setNewProfessional] = useState({ name: '', specialty: '', phone: '', photo_url: '', sinal_padrao: '' });
   const [uploadingPhoto, setUploadingPhoto] = useState(false);
   const [photoPreview, setPhotoPreview] = useState<string | null>(null);
-  const [newService, setNewService] = useState({ name: '', price: '', duration: '' });
+  const [uploadingServicePhoto, setUploadingServicePhoto] = useState(false);
+  const [servicePhotoPreview, setServicePhotoPreview] = useState<string | null>(null);
+  const [newService, setNewService] = useState({ 
+    name: '', 
+    price: '', 
+    duration: '', 
+    allow_full_payment: false, 
+    sinal_fixo: '',
+    category_id: '',
+    short_description: '',
+    description: '',
+    is_featured: false,
+    display_order: '0',
+    photo_url: ''
+  });
   const [editingProfessional, setEditingProfessional] = useState<any>(null);
   const [editingService, setEditingService] = useState<any>(null);
   const [isDialogOpen, setIsDialogOpen] = useState(false);
@@ -108,6 +125,26 @@ const Admin = () => {
       loadServices(selectedProfessional);
     }
   }, [selectedProfessional]);
+
+  // Carregar categorias
+  const loadCategories = async () => {
+    const { data, error } = await supabase
+      .from('categories')
+      .select('*')
+      .eq('is_active', true)
+      .order('display_order');
+
+    if (error) {
+      console.error('Error loading categories:', error);
+      toast.error('Erro ao carregar categorias');
+    } else {
+      setCategories(data || []);
+    }
+  };
+
+  useEffect(() => {
+    loadCategories();
+  }, []);
 
   // Carregar agendamentos
   useEffect(() => {
@@ -353,27 +390,75 @@ const Admin = () => {
     }
   };
 
+  const handleUploadServicePhoto = async (file: File) => {
+    if (!file) return null;
+
+    setUploadingServicePhoto(true);
+    try {
+      // Gerar nome único para o arquivo
+      const fileExt = file.name.split('.').pop();
+      const fileName = `${Date.now()}_${Math.random().toString(36).substring(7)}.${fileExt}`;
+      const filePath = `services/${fileName}`;
+
+      // Usar o mesmo bucket ou criar um específico para serviços
+      const bucketName = 'professional-photos'; // Pode criar um bucket separado depois
+      const { data, error: uploadError } = await supabase.storage
+        .from(bucketName)
+        .upload(filePath, file, {
+          cacheControl: '3600',
+          upsert: false
+        });
+
+      if (uploadError) {
+        console.error('Error uploading service photo:', uploadError);
+        toast.error('Erro ao fazer upload da foto');
+        return null;
+      }
+
+      // Obter URL pública da imagem
+      const { data: { publicUrl } } = supabase.storage
+        .from(bucketName)
+        .getPublicUrl(filePath);
+
+      toast.success('Foto enviada com sucesso!');
+      return publicUrl;
+    } catch (error) {
+      console.error('Error uploading service photo:', error);
+      toast.error('Erro ao fazer upload da foto');
+      return null;
+    } finally {
+      setUploadingServicePhoto(false);
+    }
+  };
+
   const handleAddProfessional = async () => {
     if (!newProfessional.name || !newProfessional.specialty || !newProfessional.phone) {
       toast.error('Preencha todos os campos obrigatórios');
       return;
     }
 
+    const professionalData: any = {
+      name: newProfessional.name,
+      specialty: newProfessional.specialty,
+      phone: newProfessional.phone,
+      photo_url: newProfessional.photo_url.trim() || null,
+    };
+
+    // Se sinal_padrao foi preenchido, adicionar ao objeto
+    if (newProfessional.sinal_padrao && parseFloat(newProfessional.sinal_padrao) > 0) {
+      professionalData.sinal_padrao = parseFloat(newProfessional.sinal_padrao);
+    }
+
     const { error } = await supabase
       .from('professionals')
-      .insert({
-        name: newProfessional.name,
-        specialty: newProfessional.specialty,
-        phone: newProfessional.phone,
-        photo_url: newProfessional.photo_url.trim() || null,
-      });
+      .insert(professionalData);
 
     if (error) {
       console.error('Error adding professional:', error);
       toast.error('Erro ao adicionar profissional');
     } else {
       toast.success(`Profissional "${newProfessional.name}" adicionada!`);
-      setNewProfessional({ name: '', specialty: '', phone: '', photo_url: '' });
+      setNewProfessional({ name: '', specialty: '', phone: '', photo_url: '', sinal_padrao: '' });
       setPhotoPreview(null);
       setIsDialogOpen(false);
       window.location.reload(); // Recarregar para atualizar lista
@@ -383,14 +468,23 @@ const Admin = () => {
   const handleUpdateProfessional = async () => {
     if (!editingProfessional) return;
 
+    const professionalData: any = {
+      name: editingProfessional.name,
+      specialty: editingProfessional.specialty,
+      phone: editingProfessional.phone,
+      photo_url: editingProfessional.photo_url?.trim() || null,
+    };
+
+    // Se sinal_padrao foi preenchido, adicionar ao objeto
+    if (editingProfessional.sinal_padrao && parseFloat(editingProfessional.sinal_padrao) > 0) {
+      professionalData.sinal_padrao = parseFloat(editingProfessional.sinal_padrao);
+    } else {
+      professionalData.sinal_padrao = null;
+    }
+
     const { error } = await supabase
       .from('professionals')
-      .update({
-        name: editingProfessional.name,
-        specialty: editingProfessional.specialty,
-        phone: editingProfessional.phone,
-        photo_url: editingProfessional.photo_url?.trim() || null,
-      })
+      .update(professionalData)
       .eq('id', editingProfessional.id);
 
     if (error) {
@@ -444,12 +538,38 @@ const Admin = () => {
       return;
     }
 
-    const serviceData = {
+    const serviceData: any = {
       professional_id: professionalId,
       name: newService.name.trim(),
       price: parseFloat(newService.price),
       duration: parseInt(newService.duration),
+      allow_full_payment: newService.allow_full_payment || false,
+      is_featured: newService.is_featured || false,
+      display_order: parseInt(newService.display_order) || 0,
     };
+
+    // Se sinal_fixo foi preenchido, adicionar ao objeto
+    if (newService.sinal_fixo && parseFloat(newService.sinal_fixo) > 0) {
+      serviceData.sinal_fixo = parseFloat(newService.sinal_fixo);
+    }
+
+    // Campos de catálogo
+    if (newService.category_id && newService.category_id !== 'none' && newService.category_id !== '') {
+      serviceData.category_id = newService.category_id;
+    } else {
+      serviceData.category_id = null;
+    }
+    if (newService.short_description?.trim()) {
+      serviceData.short_description = newService.short_description.trim();
+    }
+    if (newService.description?.trim()) {
+      serviceData.description = newService.description.trim();
+    }
+    if (newService.photo_url?.trim()) {
+      serviceData.photo_url = newService.photo_url.trim();
+    } else {
+      serviceData.photo_url = null;
+    }
 
     console.log('Inserindo serviço:', serviceData);
 
@@ -464,7 +584,18 @@ const Admin = () => {
     } else {
       console.log('Serviço adicionado com sucesso:', data);
       toast.success(`Serviço "${newService.name}" adicionado!`);
-      setNewService({ name: '', price: '', duration: '' });
+      setNewService({ 
+        name: '', 
+        price: '', 
+        duration: '', 
+        allow_full_payment: false, 
+        sinal_fixo: '',
+        category_id: '',
+        short_description: '',
+        description: '',
+        is_featured: false,
+        display_order: '0'
+      });
       setServiceFormProfessional('');
       setIsServiceDialogOpen(false);
       // Atualizar a seleção e recarregar serviços
@@ -476,13 +607,47 @@ const Admin = () => {
   const handleUpdateService = async () => {
     if (!editingService) return;
 
+    const serviceData: any = {
+      name: editingService.name,
+      price: parseFloat(editingService.price),
+      duration: parseInt(editingService.duration),
+      allow_full_payment: editingService.allow_full_payment || false,
+      is_featured: editingService.is_featured || false,
+      display_order: parseInt(editingService.display_order) || 0,
+    };
+
+    // Se sinal_fixo foi preenchido, adicionar ao objeto
+    if (editingService.sinal_fixo && parseFloat(editingService.sinal_fixo) > 0) {
+      serviceData.sinal_fixo = parseFloat(editingService.sinal_fixo);
+    } else {
+      serviceData.sinal_fixo = null;
+    }
+
+    // Campos de catálogo
+    if (editingService.category_id && editingService.category_id !== 'none' && editingService.category_id !== '') {
+      serviceData.category_id = editingService.category_id;
+    } else {
+      serviceData.category_id = null;
+    }
+    if (editingService.short_description?.trim()) {
+      serviceData.short_description = editingService.short_description.trim();
+    } else {
+      serviceData.short_description = null;
+    }
+    if (editingService.description?.trim()) {
+      serviceData.description = editingService.description.trim();
+    } else {
+      serviceData.description = null;
+    }
+    if (editingService.photo_url?.trim()) {
+      serviceData.photo_url = editingService.photo_url.trim();
+    } else {
+      serviceData.photo_url = null;
+    }
+
     const { error } = await supabase
       .from('services')
-      .update({
-        name: editingService.name,
-        price: parseFloat(editingService.price),
-        duration: parseInt(editingService.duration),
-      })
+      .update(serviceData)
       .eq('id', editingService.id);
 
     if (error) {
@@ -597,9 +762,9 @@ const Admin = () => {
 
   // Mostrar loading inicial
   if (loadingProfessionals && professionals.length === 0) {
-    return (
-      <div className="min-h-screen bg-background">
-        <Header />
+  return (
+    <div className="min-h-screen bg-background">
+      <Header />
         <main className="container mx-auto px-4 py-8">
           <div className="flex items-center justify-center min-h-[60vh]">
             <div className="text-center">
@@ -905,6 +1070,24 @@ const Admin = () => {
                         />
                       </div>
                       <div>
+                        <Label htmlFor="pro-sinal-padrao">Sinal Padrão (R$) - Opcional</Label>
+                        <Input
+                          id="pro-sinal-padrao"
+                          type="number"
+                          step="0.01"
+                          value={editingProfessional?.sinal_padrao || newProfessional.sinal_padrao}
+                          onChange={(e) => 
+                            editingProfessional
+                              ? setEditingProfessional({ ...editingProfessional, sinal_padrao: e.target.value })
+                              : setNewProfessional({ ...newProfessional, sinal_padrao: e.target.value })
+                          }
+                          placeholder="Ex: 50.00"
+                        />
+                        <p className="text-xs text-muted-foreground mt-1">
+                          Valor fixo de sinal para todos os serviços desta profissional. Se não preenchido, usa 30% do valor de cada serviço.
+                        </p>
+                      </div>
+                      <div>
                         <Label htmlFor="pro-photo">Foto da Profissional (opcional)</Label>
                         <div className="space-y-2">
                           {/* Preview da foto */}
@@ -1011,7 +1194,7 @@ const Admin = () => {
                             onClick={() => {
                               setIsDialogOpen(false);
                               setEditingProfessional(null);
-                              setNewProfessional({ name: '', specialty: '', phone: '', photo_url: '' });
+                              setNewProfessional({ name: '', specialty: '', phone: '', photo_url: '', sinal_padrao: '' });
                               setPhotoPreview(null);
                             }}
                         >
@@ -1041,15 +1224,15 @@ const Admin = () => {
                     >
                       <div className="flex items-center gap-4">
                         {pro.photo_url ? (
-                          <img
+                        <img
                             src={pro.photo_url}
-                            alt={pro.name}
-                            className="w-12 h-12 rounded-full object-cover"
+                          alt={pro.name}
+                          className="w-12 h-12 rounded-full object-cover"
                             onError={(e) => {
                               // Se a imagem falhar ao carregar, esconder
                               e.currentTarget.style.display = 'none';
                             }}
-                          />
+                        />
                         ) : (
                           <div className="w-12 h-12 rounded-full bg-muted flex items-center justify-center">
                             <Users className="h-6 w-6 text-muted-foreground" />
@@ -1127,15 +1310,16 @@ const Admin = () => {
                         Adicionar Serviço
                       </Button>
                     </DialogTrigger>
-                    <DialogContent>
+                    <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
                       <DialogHeader>
                         <DialogTitle>
                           {editingService ? 'Editar Serviço' : 'Novo Serviço'}
                         </DialogTitle>
                       </DialogHeader>
                       <div className="space-y-4 py-4">
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                         {!editingService && (
-                          <div>
+                          <div className="md:col-span-2">
                             <Label htmlFor="service-professional">Profissional *</Label>
                             <Select 
                               value={serviceFormProfessional} 
@@ -1194,13 +1378,232 @@ const Admin = () => {
                             placeholder="90"
                           />
                         </div>
+                        <div>
+                          <Label htmlFor="service-sinal-fixo">Sinal Fixo (R$) - Opcional</Label>
+                          <Input
+                            id="service-sinal-fixo"
+                            type="number"
+                            step="0.01"
+                            value={editingService?.sinal_fixo || newService.sinal_fixo}
+                            onChange={(e) => 
+                              editingService
+                                ? setEditingService({ ...editingService, sinal_fixo: e.target.value })
+                                : setNewService({ ...newService, sinal_fixo: e.target.value })
+                            }
+                            placeholder="Ex: 50.00"
+                          />
+                          <p className="text-xs text-muted-foreground mt-1">
+                            Se preenchido, este será o valor do sinal para este serviço. Caso contrário, usa o padrão da profissional ou 30% do valor total.
+                          </p>
+                        </div>
+                        <div className="md:col-span-2">
+                          <Label htmlFor="service-photo">Foto do Serviço (opcional)</Label>
+                          <div className="space-y-2">
+                            {(servicePhotoPreview || editingService?.photo_url || newService.photo_url) && (
+                              <div className="relative w-32 h-32 border rounded-lg overflow-hidden">
+                                <img
+                                  src={servicePhotoPreview || editingService?.photo_url || newService.photo_url || ''}
+                                  alt="Preview"
+                                  className="w-full h-full object-cover"
+                                />
+                                <Button
+                                  variant="destructive"
+                                  size="icon"
+                                  className="absolute top-1 right-1 h-6 w-6"
+                                  onClick={() => {
+                                    setServicePhotoPreview(null);
+                                    if (editingService) {
+                                      setEditingService({ ...editingService, photo_url: '' });
+                                    } else {
+                                      setNewService({ ...newService, photo_url: '' });
+                                    }
+                                  }}
+                                >
+                                  <X className="h-3 w-3" />
+                                </Button>
+                              </div>
+                            )}
+                            <div className="flex gap-2">
+                              <Input
+                                id="service-photo-file"
+                                type="file"
+                                accept="image/*"
+                                className="hidden"
+                                onChange={async (e) => {
+                                  const file = e.target.files?.[0];
+                                  if (file) {
+                                    // Preview local
+                                    const reader = new FileReader();
+                                    reader.onloadend = () => {
+                                      setServicePhotoPreview(reader.result as string);
+                                    };
+                                    reader.readAsDataURL(file);
+
+                                    // Upload para Supabase
+                                    const url = await handleUploadServicePhoto(file);
+                                    if (url) {
+                                      if (editingService) {
+                                        setEditingService({ ...editingService, photo_url: url });
+                                      } else {
+                                        setNewService({ ...newService, photo_url: url });
+                                      }
+                                    }
+                                  }
+                                }}
+                                disabled={uploadingServicePhoto}
+                              />
+                              <Button
+                                type="button"
+                                variant="outline"
+                                size="sm"
+                                disabled={uploadingServicePhoto}
+                                className="gap-2"
+                                onClick={() => {
+                                  document.getElementById('service-photo-file')?.click();
+                                }}
+                              >
+                                {uploadingServicePhoto ? (
+                                  <>
+                                    <Loader2 className="h-4 w-4 animate-spin" />
+                                    Enviando...
+                                  </>
+                                ) : (
+                                  <>
+                                    <Upload className="h-4 w-4" />
+                                    {servicePhotoPreview || editingService?.photo_url || newService.photo_url ? 'Trocar Foto' : 'Enviar Foto'}
+                                  </>
+                                )}
+                              </Button>
+                              <Input
+                                id="service-photo-url"
+                                type="url"
+                                placeholder="Ou cole a URL da imagem"
+                                value={editingService?.photo_url || newService.photo_url}
+                                onChange={(e) => {
+                                  if (editingService) {
+                                    setEditingService({ ...editingService, photo_url: e.target.value });
+                                  } else {
+                                    setNewService({ ...newService, photo_url: e.target.value });
+                                  }
+                                  setServicePhotoPreview(null);
+                                }}
+                                className="flex-1"
+                              />
+                            </div>
+                          </div>
+                        </div>
+                        <div>
+                          <Label htmlFor="service-category">Categoria (opcional)</Label>
+                          <Select
+                            value={(editingService?.category_id || newService.category_id || 'none') === '' ? 'none' : (editingService?.category_id || newService.category_id || 'none')}
+                            onValueChange={(value) => {
+                              const categoryValue = value === 'none' ? '' : value;
+                              if (editingService) {
+                                setEditingService({ ...editingService, category_id: categoryValue });
+                              } else {
+                                setNewService({ ...newService, category_id: categoryValue });
+                              }
+                            }}
+                          >
+                            <SelectTrigger>
+                              <SelectValue placeholder="Selecione uma categoria" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="none">Sem categoria</SelectItem>
+                              {categories.map((cat) => (
+                                <SelectItem key={cat.id} value={cat.id}>
+                                  {cat.name}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        </div>
+                        <div className="md:col-span-2">
+                          <Label htmlFor="service-short-description">Descrição Curta (opcional)</Label>
+                          <Input
+                            id="service-short-description"
+                            value={editingService?.short_description || newService.short_description}
+                            onChange={(e) => 
+                              editingService
+                                ? setEditingService({ ...editingService, short_description: e.target.value })
+                                : setNewService({ ...newService, short_description: e.target.value })
+                            }
+                            placeholder="Ex: Procedimento para quem gosta de volumão..."
+                            maxLength={150}
+                          />
+                          <p className="text-xs text-muted-foreground mt-1">
+                            Descrição curta que aparece nos cards do catálogo (máx. 150 caracteres)
+                          </p>
+                        </div>
+                        <div className="md:col-span-2">
+                          <Label htmlFor="service-description">Descrição Completa (opcional)</Label>
+                          <Textarea
+                            id="service-description"
+                            value={editingService?.description || newService.description}
+                            onChange={(e) => 
+                              editingService
+                                ? setEditingService({ ...editingService, description: e.target.value })
+                                : setNewService({ ...newService, description: e.target.value })
+                            }
+                            placeholder="Descrição detalhada do serviço, durabilidade, manutenção, etc..."
+                            rows={4}
+                          />
+                          <p className="text-xs text-muted-foreground mt-1">
+                            Descrição completa que aparece na página de detalhes do serviço
+                          </p>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <Checkbox
+                            id="service-featured"
+                            checked={editingService?.is_featured || newService.is_featured}
+                            onCheckedChange={(checked) => 
+                              editingService
+                                ? setEditingService({ ...editingService, is_featured: checked as boolean })
+                                : setNewService({ ...newService, is_featured: checked as boolean })
+                            }
+                          />
+                          <Label htmlFor="service-featured" className="cursor-pointer">
+                            Destacar no catálogo
+                          </Label>
+                        </div>
+                        <div>
+                          <Label htmlFor="service-display-order">Ordem de Exibição (opcional)</Label>
+                          <Input
+                            id="service-display-order"
+                            type="number"
+                            value={editingService?.display_order || newService.display_order}
+                            onChange={(e) => 
+                              editingService
+                                ? setEditingService({ ...editingService, display_order: e.target.value })
+                                : setNewService({ ...newService, display_order: e.target.value })
+                            }
+                            placeholder="0"
+                          />
+                          <p className="text-xs text-muted-foreground mt-1">
+                            Número menor aparece primeiro no catálogo
+                          </p>
+                        </div>
+                        </div>
                         <DialogFooter>
                           <Button
                             variant="outline"
                             onClick={() => {
                               setIsServiceDialogOpen(false);
                               setEditingService(null);
-                              setNewService({ name: '', price: '', duration: '' });
+                              setNewService({ 
+        name: '', 
+        price: '', 
+        duration: '', 
+        allow_full_payment: false, 
+        sinal_fixo: '',
+        category_id: '',
+        short_description: '',
+        description: '',
+        is_featured: false,
+        display_order: '0',
+        photo_url: ''
+      });
+                              setServicePhotoPreview(null);
                               setServiceFormProfessional('');
                             }}
                           >
@@ -1256,7 +1659,14 @@ const Admin = () => {
                                   variant="outline"
                                   size="icon"
                                   onClick={() => {
-                                    setEditingService(service);
+                                    // Garantir que category_id null/vazio seja tratado como 'none' para o Select
+                                    const serviceToEdit = {
+                                      ...service,
+                                      category_id: service.category_id || 'none',
+                                      display_order: service.display_order?.toString() || '0',
+                                    };
+                                    setEditingService(serviceToEdit);
+                                    setServicePhotoPreview(service.photo_url || null);
                                     setIsServiceDialogOpen(true);
                                   }}
                                 >
@@ -1292,15 +1702,15 @@ const Admin = () => {
                   <Select value={hoursProfessionalFilter} onValueChange={setHoursProfessionalFilter}>
                     <SelectTrigger className="w-[200px]">
                       <SelectValue placeholder="Filtrar por profissional" />
-                    </SelectTrigger>
-                    <SelectContent>
+                  </SelectTrigger>
+                  <SelectContent>
                       <SelectItem value="all">Todos (Globais + Específicos)</SelectItem>
                       <SelectItem value="global">Apenas Globais</SelectItem>
-                      {professionals.map((pro) => (
-                        <SelectItem key={pro.id} value={pro.id}>{pro.name}</SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
+                    {professionals.map((pro) => (
+                      <SelectItem key={pro.id} value={pro.id}>{pro.name}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
                   <Dialog open={isHourDialogOpen} onOpenChange={setIsHourDialogOpen}>
                     <DialogTrigger asChild>
                       <Button>
@@ -1406,16 +1816,16 @@ const Admin = () => {
                   </div>
                 ) : (
                   <div className="overflow-x-auto">
-                    <Table>
-                      <TableHeader>
-                        <TableRow>
-                          <TableHead>Horário</TableHead>
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Horário</TableHead>
                           <TableHead>Profissional</TableHead>
-                          <TableHead>Status</TableHead>
+                      <TableHead>Status</TableHead>
                           <TableHead>Ações</TableHead>
-                        </TableRow>
-                      </TableHeader>
-                      <TableBody>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
                         {availableHours.length === 0 ? (
                           <TableRow>
                             <TableCell colSpan={4} className="text-center py-8 text-muted-foreground">
@@ -1426,7 +1836,7 @@ const Admin = () => {
                           availableHours.map((hour) => (
                             <TableRow key={hour.id}>
                               <TableCell className="font-medium">{hour.time}</TableCell>
-                              <TableCell>
+                          <TableCell>
                                 {hour.professional_id ? (
                                   <span>{hour.professionals?.name || 'Carregando...'}</span>
                                 ) : (
@@ -1522,7 +1932,7 @@ const Admin = () => {
                         <DialogTitle>Adicionar Bloqueio de Agenda</DialogTitle>
                       </DialogHeader>
                       <div className="space-y-4 py-4">
-                        <div>
+                            <div>
                           <Label htmlFor="blocked-professional">Profissional *</Label>
                           <Select
                             value={newBlocked.professionalId}
@@ -1537,7 +1947,7 @@ const Admin = () => {
                               ))}
                             </SelectContent>
                           </Select>
-                        </div>
+                            </div>
                         <div>
                           <Label htmlFor="blocked-date">Data *</Label>
                           <Input
@@ -1629,14 +2039,14 @@ const Admin = () => {
                           <TableRow>
                             <TableCell colSpan={5} className="text-center py-8 text-muted-foreground">
                               Nenhum bloqueio encontrado
-                            </TableCell>
+                          </TableCell>
                           </TableRow>
                         ) : (
                           blockedSlots.map((blocked) => {
                             const professional = blocked.professionals;
                             return (
                               <TableRow key={blocked.id}>
-                                <TableCell>
+                          <TableCell>
                                   {formatDateString(blocked.blocked_date)}
                                 </TableCell>
                                 <TableCell>
@@ -1663,13 +2073,13 @@ const Admin = () => {
                                   >
                                     <Trash2 className="h-4 w-4 text-destructive" />
                                   </Button>
-                                </TableCell>
-                              </TableRow>
-                            );
+                          </TableCell>
+                        </TableRow>
+                      );
                           })
                         )}
-                      </TableBody>
-                    </Table>
+                  </TableBody>
+                </Table>
                   </div>
                 )}
               </CardContent>
@@ -1723,6 +2133,52 @@ const Admin = () => {
                     )}
                   </TableBody>
                 </Table>
+              </CardContent>
+            </Card>
+          </TabsContent>
+
+          {/* Tab: Categorias */}
+          <TabsContent value="categories">
+            <Card>
+              <CardHeader className="flex flex-row items-center justify-between flex-wrap gap-4">
+                <CardTitle className="font-serif">Categorias de Serviços</CardTitle>
+                <Button onClick={loadCategories} variant="outline" size="sm">
+                  Atualizar
+                </Button>
+              </CardHeader>
+              <CardContent>
+                <div className="text-sm text-muted-foreground mb-4">
+                  As categorias ajudam a organizar os serviços no catálogo. Categorias padrão já foram criadas automaticamente.
+                </div>
+                <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-4">
+                  {categories.map((category) => (
+                    <Card key={category.id} className="p-4">
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-3">
+                          {category.icon && (
+                            <div 
+                              className="w-10 h-10 rounded-full flex items-center justify-center"
+                              style={{ backgroundColor: category.color ? `${category.color}20` : undefined }}
+                            >
+                              <Tag className="h-5 w-5" style={{ color: category.color }} />
+                            </div>
+                          )}
+                          <div>
+                            <h4 className="font-semibold">{category.name}</h4>
+                            {category.description && (
+                              <p className="text-xs text-muted-foreground">{category.description}</p>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    </Card>
+                  ))}
+                </div>
+                {categories.length === 0 && (
+                  <div className="text-center py-8 text-muted-foreground">
+                    Nenhuma categoria encontrada. Execute a migration para criar as categorias padrão.
+                  </div>
+                )}
               </CardContent>
             </Card>
           </TabsContent>

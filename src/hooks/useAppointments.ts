@@ -7,6 +7,7 @@ export interface Professional {
   specialty: string;
   photo_url: string | null;
   phone: string;
+  sinal_padrao?: number | null;
 }
 
 export interface Service {
@@ -16,6 +17,12 @@ export interface Service {
   price: number;
   duration: number;
   photo_url: string | null;
+  sinal_fixo?: number | null;
+  category_id?: string | null;
+  description?: string | null;
+  short_description?: string | null;
+  is_featured?: boolean;
+  display_order?: number;
 }
 
 export interface TimeSlot {

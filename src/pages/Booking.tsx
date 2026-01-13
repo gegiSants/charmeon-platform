@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useLocation } from 'react-router-dom';
 import Header from '@/components/Header';
 import Footer from '@/components/Footer';
 import ProfessionalCard from '@/components/ProfessionalCard';
@@ -20,7 +20,15 @@ type BookingStep = 'info' | 'professional' | 'service' | 'datetime' | 'confirm';
 
 const Booking = () => {
   const navigate = useNavigate();
+  const location = useLocation();
   const { professionals, loading: loadingProfessionals } = useProfessionals();
+  
+  // Verificar se há pré-seleção vinda do catálogo
+  const preselectedData = location.state as {
+    preselectedService?: string;
+    preselectedProfessional?: string;
+  } | null;
+
   const [step, setStep] = useState<BookingStep>('info');
   const [clientName, setClientName] = useState('');
   const [clientPhone, setClientPhone] = useState('');
@@ -39,6 +47,25 @@ const Booking = () => {
 
   const stepOrder: BookingStep[] = ['info', 'professional', 'service', 'datetime', 'confirm'];
   const currentStepIndex = stepOrder.indexOf(step);
+
+  // Pré-selecionar profissional e serviço se vier do catálogo
+  useEffect(() => {
+    if (preselectedData?.preselectedProfessional && professionals.length > 0) {
+      setSelectedProfessional(preselectedData.preselectedProfessional);
+      // Se também tem serviço pré-selecionado, ir direto para o passo de serviço
+      if (preselectedData.preselectedService) {
+        setStep('service');
+      } else {
+        setStep('professional');
+      }
+    }
+  }, [preselectedData, professionals]);
+
+  useEffect(() => {
+    if (preselectedData?.preselectedService && services.length > 0) {
+      setSelectedService(preselectedData.preselectedService);
+    }
+  }, [preselectedData, services]);
 
   const formatPhone = (value: string) => {
     const numbers = value.replace(/\D/g, '');
