@@ -83,12 +83,12 @@ const PaymentSuccess = () => {
               {verified || bookingData?.pending ? 'Agendamento Confirmado!' : 'Pagamento Processado!'}
             </h1>
             
-            {bookingData && (
+            {bookingData && bookingData.service && bookingData.professional && (
               <>
                 <div className="bg-secondary/50 rounded-lg p-4 mb-6 text-left space-y-2">
                   <p><strong>Cliente:</strong> {bookingData.clientName}</p>
-                  <p><strong>Serviço:</strong> {bookingData.service.name}</p>
-                  <p><strong>Profissional:</strong> {bookingData.professional.name}</p>
+                  <p><strong>Serviço:</strong> {bookingData.service?.name}</p>
+                  <p><strong>Profissional:</strong> {bookingData.professional?.name}</p>
                   <p>
                     <strong>Data:</strong>{' '}
                     {format(new Date(bookingData.date), "dd 'de' MMMM 'de' yyyy", { locale: ptBR })}

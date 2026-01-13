@@ -1,4 +1,4 @@
-import { TimeSlot } from '@/data/mockData';
+import { TimeSlot } from '@/hooks/useAppointments';
 import { Button } from '@/components/ui/button';
 
 interface TimeSlotButtonProps {

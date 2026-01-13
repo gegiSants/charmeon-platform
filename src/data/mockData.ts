@@ -2,7 +2,7 @@ export interface Professional {
   id: string;
   name: string;
   specialty: string;
-  photo: string;
+  photo?: string;
   phone: string;
   services: Service[];
 }

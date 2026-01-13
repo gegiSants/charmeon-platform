@@ -1,4 +1,5 @@
 import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2.57.2";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -24,8 +25,42 @@ serve(async (req) => {
       appointmentTime 
     } = await req.json();
 
-    if (!amount || !serviceName || !clientName) {
+    // Validar campos obrigatórios (permitir amount === 0 para testes)
+    if (amount === undefined || amount === null || !serviceName || !clientName) {
       throw new Error("Campos obrigatórios: amount, serviceName, clientName");
+    }
+
+    // Converter amount para número e verificar se é 0 (para testes)
+    const amountNum = typeof amount === 'string' ? parseFloat(amount) : Number(amount);
+
+    // Se o valor for 0 (ou muito próximo de 0), marcar agendamento como confirmado diretamente (para testes)
+    if (amountNum === 0 || (Math.abs(amountNum) < 0.01)) {
+      const supabaseClient = createClient(
+        Deno.env.get("SUPABASE_URL") ?? "",
+        Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "",
+        { auth: { persistSession: false } }
+      );
+
+      if (appointmentId) {
+        await supabaseClient
+          .from('appointments')
+          .update({ 
+            status: 'confirmed',
+            amount_paid: 0 
+          })
+          .eq('id', appointmentId);
+      }
+
+      return new Response(JSON.stringify({ 
+        paymentId: `test_${Date.now()}`,
+        preferenceId: `test_${Date.now()}`,
+        skipPayment: true,
+        type: 'test',
+        provider: 'test'
+      }), {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+        status: 200,
+      });
     }
 
     const mpAccessToken = Deno.env.get("MERCADOPAGO_ACCESS_TOKEN");

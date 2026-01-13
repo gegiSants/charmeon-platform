@@ -91,6 +91,19 @@ const Payment = () => {
 
       const data = await response.json();
 
+      // Se o valor for 0 (teste), pular pagamento e ir direto para sucesso
+      if (data.skipPayment) {
+        navigate('/pagamento-sucesso', {
+          state: {
+            ...bookingData,
+            paymentType: paymentType,
+            amountPaid: amount,
+            restante: paymentType === 'sinal' ? restanteValue : 0,
+          },
+        });
+        return;
+      }
+
       // Aceitar tanto QR Code quanto link de pagamento
       const paymentLink = data.initPoint || data.sandboxInitPoint;
       const hasQrCode = data.qrCode || data.qrCodeBase64;

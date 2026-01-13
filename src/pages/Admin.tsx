@@ -12,10 +12,26 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Badge } from '@/components/ui/badge';
 import { useProfessionals, useServices } from '@/hooks/useAppointments';
 import { supabase } from '@/integrations/supabase/client';
-import { Plus, Users, Scissors, Calendar, List, Phone, Clock, Trash2, Edit, Loader2, CheckCircle, XCircle, DollarSign, Mail } from 'lucide-react';
+import { Plus, Users, Scissors, Calendar, List, Phone, Clock, Trash2, Edit, Loader2, CheckCircle, XCircle, DollarSign, Mail, Ban, Upload, X } from 'lucide-react';
 import { toast } from 'sonner';
 import { format } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
+
+// Função helper para formatar data YYYY-MM-DD para dd/MM/yyyy
+// Evita problemas de timezone ao usar new Date()
+function formatDateString(dateStr: string): string {
+  // Se a data já está no formato YYYY-MM-DD, converter diretamente
+  const [year, month, day] = dateStr.split('-');
+  if (year && month && day) {
+    return `${day}/${month}/${year}`;
+  }
+  // Fallback: tentar usar date-fns
+  try {
+    return format(new Date(dateStr + 'T12:00:00'), "dd/MM/yyyy", { locale: ptBR });
+  } catch {
+    return dateStr;
+  }
+}
 
 interface Appointment {
   id: string;
@@ -50,7 +66,9 @@ const Admin = () => {
   const [error, setError] = useState<string | null>(null);
   
   // Estados para formulários
-  const [newProfessional, setNewProfessional] = useState({ name: '', specialty: '', phone: '' });
+  const [newProfessional, setNewProfessional] = useState({ name: '', specialty: '', phone: '', photo_url: '' });
+  const [uploadingPhoto, setUploadingPhoto] = useState(false);
+  const [photoPreview, setPhotoPreview] = useState<string | null>(null);
   const [newService, setNewService] = useState({ name: '', price: '', duration: '' });
   const [editingProfessional, setEditingProfessional] = useState<any>(null);
   const [editingService, setEditingService] = useState<any>(null);
@@ -63,8 +81,15 @@ const Admin = () => {
   const [availableHours, setAvailableHours] = useState<any[]>([]);
   const [loadingHours, setLoadingHours] = useState(false);
   const [hoursProfessionalFilter, setHoursProfessionalFilter] = useState<string>('all');
-  const [newHour, setNewHour] = useState({ time: '', professionalId: '' });
+  const [newHour, setNewHour] = useState({ time: '', professionalId: 'global' });
   const [isHourDialogOpen, setIsHourDialogOpen] = useState(false);
+  
+  // Estados para gerenciamento de bloqueios
+  const [blockedSlots, setBlockedSlots] = useState<any[]>([]);
+  const [loadingBlocked, setLoadingBlocked] = useState(false);
+  const [blockedProfessionalFilter, setBlockedProfessionalFilter] = useState<string>('all');
+  const [newBlocked, setNewBlocked] = useState({ date: '', time: '', professionalId: '', reason: '' });
+  const [isBlockedDialogOpen, setIsBlockedDialogOpen] = useState(false);
 
   // Verificar configuração do Supabase
   useEffect(() => {
@@ -128,6 +153,96 @@ const Admin = () => {
     loadAvailableHours();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [hoursProfessionalFilter]);
+
+  // Carregar bloqueios de agenda
+  const loadBlockedSlots = async () => {
+    try {
+      setLoadingBlocked(true);
+      let query = supabase
+        .from('blocked_slots')
+        .select('*, professionals:professional_id(id, name)')
+        .order('blocked_date', { ascending: true })
+        .order('blocked_time', { ascending: true });
+
+      if (blockedProfessionalFilter !== 'all') {
+        query = query.eq('professional_id', blockedProfessionalFilter);
+      }
+
+      const { data, error: queryError } = await query;
+
+      if (queryError) {
+        console.error('Error loading blocked slots:', queryError);
+        toast.error(`Erro ao carregar bloqueios: ${queryError.message}`);
+        setBlockedSlots([]);
+      } else {
+        setBlockedSlots(data || []);
+      }
+    } catch (err: any) {
+      console.error('Unexpected error loading blocked slots:', err);
+      toast.error('Erro ao carregar bloqueios');
+      setBlockedSlots([]);
+    } finally {
+      setLoadingBlocked(false);
+    }
+  };
+
+  // Carregar bloqueios quando a aba é selecionada ou filtro muda
+  useEffect(() => {
+    loadBlockedSlots();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [blockedProfessionalFilter]);
+
+  const handleAddBlocked = async () => {
+    if (!newBlocked.professionalId || !newBlocked.date) {
+      toast.error('Preencha a profissional e a data');
+      return;
+    }
+
+    const blockedData: any = {
+      professional_id: newBlocked.professionalId,
+      blocked_date: newBlocked.date,
+      reason: newBlocked.reason || null,
+    };
+
+    // Se foi selecionado horário específico, adicionar ao bloqueio
+    if (newBlocked.time && newBlocked.time !== 'all-day') {
+      blockedData.blocked_time = newBlocked.time;
+    }
+    // Se não foi selecionado horário (all-day), blocked_time fica NULL (bloqueia dia inteiro)
+
+    const { error } = await supabase
+      .from('blocked_slots')
+      .insert(blockedData);
+
+    if (error) {
+      console.error('Error adding blocked slot:', error);
+      toast.error(`Erro ao adicionar bloqueio: ${error.message}`);
+    } else {
+      toast.success('Bloqueio adicionado!');
+      setIsBlockedDialogOpen(false);
+      setNewBlocked({ date: '', time: '', professionalId: '', reason: '' });
+      loadBlockedSlots();
+    }
+  };
+
+  const handleDeleteBlocked = async (blockedId: string) => {
+    if (!confirm('Tem certeza que deseja remover este bloqueio?')) {
+      return;
+    }
+
+    const { error } = await supabase
+      .from('blocked_slots')
+      .delete()
+      .eq('id', blockedId);
+
+    if (error) {
+      console.error('Error deleting blocked slot:', error);
+      toast.error('Erro ao remover bloqueio');
+    } else {
+      toast.success('Bloqueio removido!');
+      loadBlockedSlots();
+    }
+  };
 
   const loadServices = async (professionalId: string) => {
     try {
@@ -193,6 +308,51 @@ const Admin = () => {
     }
   };
 
+  const handleUploadPhoto = async (file: File) => {
+    if (!file) return null;
+
+    setUploadingPhoto(true);
+    try {
+      // Gerar nome único para o arquivo
+      const fileExt = file.name.split('.').pop();
+      const fileName = `${Date.now()}_${Math.random().toString(36).substring(7)}.${fileExt}`;
+      const filePath = `professionals/${fileName}`;
+
+      // Fazer upload para Supabase Storage
+      // Nota: O nome do bucket deve corresponder exatamente ao criado no Supabase
+      // Se você executou o SQL com 'professional-photos', use esse nome
+      // Se o bucket foi criado como "PROFESSIONAL-PHOTOS" (maiúsculas), use esse
+      // Se foi criado como "fotos profissionais" (com espaço), use esse
+      const bucketName = 'professional-photos'; // Nome usado nas políticas SQL
+      const { data, error: uploadError } = await supabase.storage
+        .from(bucketName)
+        .upload(filePath, file, {
+          cacheControl: '3600',
+          upsert: false
+        });
+
+      if (uploadError) {
+        console.error('Error uploading photo:', uploadError);
+        toast.error('Erro ao fazer upload da foto');
+        return null;
+      }
+
+      // Obter URL pública da imagem
+      const { data: { publicUrl } } = supabase.storage
+        .from(bucketName)
+        .getPublicUrl(filePath);
+
+      toast.success('Foto enviada com sucesso!');
+      return publicUrl;
+    } catch (error) {
+      console.error('Error uploading photo:', error);
+      toast.error('Erro ao fazer upload da foto');
+      return null;
+    } finally {
+      setUploadingPhoto(false);
+    }
+  };
+
   const handleAddProfessional = async () => {
     if (!newProfessional.name || !newProfessional.specialty || !newProfessional.phone) {
       toast.error('Preencha todos os campos obrigatórios');
@@ -205,6 +365,7 @@ const Admin = () => {
         name: newProfessional.name,
         specialty: newProfessional.specialty,
         phone: newProfessional.phone,
+        photo_url: newProfessional.photo_url.trim() || null,
       });
 
     if (error) {
@@ -212,7 +373,8 @@ const Admin = () => {
       toast.error('Erro ao adicionar profissional');
     } else {
       toast.success(`Profissional "${newProfessional.name}" adicionada!`);
-      setNewProfessional({ name: '', specialty: '', phone: '' });
+      setNewProfessional({ name: '', specialty: '', phone: '', photo_url: '' });
+      setPhotoPreview(null);
       setIsDialogOpen(false);
       window.location.reload(); // Recarregar para atualizar lista
     }
@@ -227,6 +389,7 @@ const Admin = () => {
         name: editingProfessional.name,
         specialty: editingProfessional.specialty,
         phone: editingProfessional.phone,
+        photo_url: editingProfessional.photo_url?.trim() || null,
       })
       .eq('id', editingProfessional.id);
 
@@ -512,6 +675,10 @@ const Admin = () => {
               <Clock className="h-4 w-4 hidden sm:inline" />
               Horários
             </TabsTrigger>
+            <TabsTrigger value="blocked" className="gap-2">
+              <Ban className="h-4 w-4 hidden sm:inline" />
+              Bloqueios
+            </TabsTrigger>
             <TabsTrigger value="clients" className="gap-2">
               <List className="h-4 w-4 hidden sm:inline" />
               Clientes
@@ -575,7 +742,7 @@ const Admin = () => {
                             return (
                               <TableRow key={apt.id}>
                                 <TableCell>
-                                  {format(new Date(apt.appointment_date), "dd/MM/yyyy", { locale: ptBR })}
+                                  {formatDateString(apt.appointment_date)}
                                 </TableCell>
                                 <TableCell>{apt.appointment_time}</TableCell>
                                 <TableCell>
@@ -737,14 +904,116 @@ const Admin = () => {
                           placeholder="(11) 99999-9999"
                         />
                       </div>
+                      <div>
+                        <Label htmlFor="pro-photo">Foto da Profissional (opcional)</Label>
+                        <div className="space-y-2">
+                          {/* Preview da foto */}
+                          {(photoPreview || editingProfessional?.photo_url || newProfessional.photo_url) && (
+                            <div className="relative inline-block">
+                              <img
+                                src={photoPreview || editingProfessional?.photo_url || newProfessional.photo_url || ''}
+                                alt="Preview"
+                                className="w-24 h-24 rounded-full object-cover border-2 border-border"
+                                onError={(e) => {
+                                  e.currentTarget.style.display = 'none';
+                                }}
+                              />
+                              <Button
+                                type="button"
+                                variant="destructive"
+                                size="icon"
+                                className="absolute -top-2 -right-2 h-6 w-6 rounded-full"
+                                onClick={() => {
+                                  setPhotoPreview(null);
+                                  if (editingProfessional) {
+                                    setEditingProfessional({ ...editingProfessional, photo_url: '' });
+                                  } else {
+                                    setNewProfessional({ ...newProfessional, photo_url: '' });
+                                  }
+                                }}
+                              >
+                                <X className="h-3 w-3" />
+                              </Button>
+                            </div>
+                          )}
+                          
+                          {/* Upload de arquivo */}
+                          <div className="flex gap-2">
+                            <Input
+                              id="pro-photo-file"
+                              type="file"
+                              accept="image/*"
+                              onChange={async (e) => {
+                                const file = e.target.files?.[0];
+                                if (!file) return;
+
+                                // Validar tamanho (máx 5MB)
+                                if (file.size > 5 * 1024 * 1024) {
+                                  toast.error('A imagem deve ter no máximo 5MB');
+                                  return;
+                                }
+
+                                // Preview local
+                                const reader = new FileReader();
+                                reader.onloadend = () => {
+                                  setPhotoPreview(reader.result as string);
+                                };
+                                reader.readAsDataURL(file);
+
+                                // Upload para Supabase
+                                const photoUrl = await handleUploadPhoto(file);
+                                if (photoUrl) {
+                                  if (editingProfessional) {
+                                    setEditingProfessional({ ...editingProfessional, photo_url: photoUrl });
+                                  } else {
+                                    setNewProfessional({ ...newProfessional, photo_url: photoUrl });
+                                  }
+                                }
+                              }}
+                              disabled={uploadingPhoto}
+                              className="flex-1"
+                            />
+                            {uploadingPhoto && (
+                              <Loader2 className="h-4 w-4 animate-spin text-primary" />
+                            )}
+                          </div>
+                          
+                          {/* Campo de URL manual (alternativa) */}
+                          <div>
+                            <Label htmlFor="pro-photo-url" className="text-xs text-muted-foreground">
+                              Ou cole uma URL de imagem:
+                            </Label>
+                            <Input
+                              id="pro-photo-url"
+                              type="url"
+                              value={editingProfessional?.photo_url || newProfessional.photo_url}
+                              onChange={(e) => {
+                                const url = e.target.value;
+                                setPhotoPreview(url);
+                                if (editingProfessional) {
+                                  setEditingProfessional({ ...editingProfessional, photo_url: url });
+                                } else {
+                                  setNewProfessional({ ...newProfessional, photo_url: url });
+                                }
+                              }}
+                              placeholder="https://exemplo.com/foto.jpg"
+                              className="mt-1"
+                            />
+                          </div>
+                          <p className="text-xs text-muted-foreground">
+                            Faça upload de uma imagem ou cole uma URL. Deixe vazio para não exibir foto.
+                          </p>
+                        </div>
+                      </div>
                       <DialogFooter>
                         <Button
                           variant="outline"
-                          onClick={() => {
-                            setIsDialogOpen(false);
-                            setEditingProfessional(null);
-                            setNewProfessional({ name: '', specialty: '', phone: '' });
-                          }}
+                            onClick={() => {
+                              setIsDialogOpen(false);
+                              setEditingProfessional(null);
+                              setNewProfessional({ name: '', specialty: '', phone: '', photo_url: '' });
+                              setPhotoPreview(null);
+                            }}
                         >
                           Cancelar
                         </Button>
@@ -771,11 +1040,21 @@ const Admin = () => {
                       className="flex items-center justify-between p-4 rounded-lg border border-border"
                     >
                       <div className="flex items-center gap-4">
-                        <img
-                            src={pro.photo_url || 'https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=400&h=400&fit=crop&crop=face'}
-                          alt={pro.name}
-                          className="w-12 h-12 rounded-full object-cover"
-                        />
+                        {pro.photo_url ? (
+                          <img
+                            src={pro.photo_url}
+                            alt={pro.name}
+                            className="w-12 h-12 rounded-full object-cover"
+                            onError={(e) => {
+                              // Se a imagem falhar ao carregar, esconder
+                              e.currentTarget.style.display = 'none';
+                            }}
+                          />
+                        ) : (
+                          <div className="w-12 h-12 rounded-full bg-muted flex items-center justify-center">
+                            <Users className="h-6 w-6 text-muted-foreground" />
+                          </div>
+                        )}
                         <div>
                           <h4 className="font-medium">{pro.name}</h4>
                           <p className="text-sm text-muted-foreground">{pro.specialty}</p>
@@ -791,6 +1070,7 @@ const Admin = () => {
                             size="icon"
                             onClick={() => {
                               setEditingProfessional(pro);
+                              setPhotoPreview(pro.photo_url || null);
                               setIsDialogOpen(true);
                             }}
                           >
@@ -1057,14 +1337,14 @@ const Admin = () => {
                               <SelectValue placeholder="Global (para todos)" />
                             </SelectTrigger>
                             <SelectContent>
-                              <SelectItem value="">Global (para todos)</SelectItem>
+                              <SelectItem value="global">Global (para todos)</SelectItem>
                               {professionals.map((pro) => (
                                 <SelectItem key={pro.id} value={pro.id}>{pro.name}</SelectItem>
                               ))}
                             </SelectContent>
                           </Select>
                           <p className="text-xs text-muted-foreground mt-1">
-                            Deixe vazio para horário global (disponível para todos)
+                            Selecione "Global" para horário disponível para todos
                           </p>
                         </div>
                         <DialogFooter>
@@ -1072,7 +1352,7 @@ const Admin = () => {
                             variant="outline"
                             onClick={() => {
                               setIsHourDialogOpen(false);
-                              setNewHour({ time: '', professionalId: '' });
+                              setNewHour({ time: '', professionalId: 'global' });
                             }}
                           >
                             Cancelar
@@ -1089,7 +1369,7 @@ const Admin = () => {
                                 is_active: true,
                               };
 
-                              if (newHour.professionalId) {
+                              if (newHour.professionalId && newHour.professionalId !== 'global') {
                                 hourData.professional_id = newHour.professionalId;
                               }
 
@@ -1103,7 +1383,7 @@ const Admin = () => {
                               } else {
                                 toast.success('Horário adicionado!');
                                 setIsHourDialogOpen(false);
-                                setNewHour({ time: '', professionalId: '' });
+                                setNewHour({ time: '', professionalId: 'global' });
                                 loadAvailableHours();
                               }
                             }}
@@ -1204,6 +1484,189 @@ const Admin = () => {
                               </TableCell>
                             </TableRow>
                           ))
+                        )}
+                      </TableBody>
+                    </Table>
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          </TabsContent>
+
+          {/* Tab: Bloqueios */}
+          <TabsContent value="blocked">
+            <Card>
+              <CardHeader className="flex flex-row items-center justify-between flex-wrap gap-4">
+                <CardTitle className="font-serif">Gerenciar Bloqueios de Agenda</CardTitle>
+                <div className="flex gap-2">
+                  <Select value={blockedProfessionalFilter} onValueChange={setBlockedProfessionalFilter}>
+                    <SelectTrigger className="w-[200px]">
+                      <SelectValue placeholder="Filtrar por profissional" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">Todas as profissionais</SelectItem>
+                      {professionals.map((pro) => (
+                        <SelectItem key={pro.id} value={pro.id}>{pro.name}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <Dialog open={isBlockedDialogOpen} onOpenChange={setIsBlockedDialogOpen}>
+                    <DialogTrigger asChild>
+                      <Button size="sm" className="gap-2">
+                        <Plus className="h-4 w-4" />
+                        Adicionar Bloqueio
+                      </Button>
+                    </DialogTrigger>
+                    <DialogContent>
+                      <DialogHeader>
+                        <DialogTitle>Adicionar Bloqueio de Agenda</DialogTitle>
+                      </DialogHeader>
+                      <div className="space-y-4 py-4">
+                        <div>
+                          <Label htmlFor="blocked-professional">Profissional *</Label>
+                          <Select
+                            value={newBlocked.professionalId}
+                            onValueChange={(value) => setNewBlocked({ ...newBlocked, professionalId: value })}
+                          >
+                            <SelectTrigger>
+                              <SelectValue placeholder="Selecione a profissional" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {professionals.map((pro) => (
+                                <SelectItem key={pro.id} value={pro.id}>{pro.name}</SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        </div>
+                        <div>
+                          <Label htmlFor="blocked-date">Data *</Label>
+                          <Input
+                            id="blocked-date"
+                            type="date"
+                            value={newBlocked.date}
+                            onChange={(e) => setNewBlocked({ ...newBlocked, date: e.target.value })}
+                            min={new Date().toISOString().split('T')[0]}
+                          />
+                        </div>
+                        <div>
+                          <Label htmlFor="blocked-time">Tipo de Bloqueio *</Label>
+                          <Select
+                            value={newBlocked.time}
+                            onValueChange={(value) => setNewBlocked({ ...newBlocked, time: value })}
+                          >
+                            <SelectTrigger>
+                              <SelectValue placeholder="Selecione o tipo" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="all-day">Dia inteiro</SelectItem>
+                              <SelectItem value="08:00">08:00</SelectItem>
+                              <SelectItem value="09:00">09:00</SelectItem>
+                              <SelectItem value="10:00">10:00</SelectItem>
+                              <SelectItem value="11:00">11:00</SelectItem>
+                              <SelectItem value="13:00">13:00</SelectItem>
+                              <SelectItem value="14:00">14:00</SelectItem>
+                              <SelectItem value="15:00">15:00</SelectItem>
+                              <SelectItem value="16:00">16:00</SelectItem>
+                              <SelectItem value="17:00">17:00</SelectItem>
+                              <SelectItem value="18:00">18:00</SelectItem>
+                              <SelectItem value="19:00">19:00</SelectItem>
+                            </SelectContent>
+                          </Select>
+                          <p className="text-xs text-muted-foreground mt-1">
+                            Selecione "Dia inteiro" para bloquear todo o dia ou um horário específico
+                          </p>
+                        </div>
+                        <div>
+                          <Label htmlFor="blocked-reason">Motivo (opcional)</Label>
+                          <Input
+                            id="blocked-reason"
+                            value={newBlocked.reason}
+                            onChange={(e) => setNewBlocked({ ...newBlocked, reason: e.target.value })}
+                            placeholder="Ex: Férias, Evento, etc"
+                          />
+                        </div>
+                        <DialogFooter>
+                          <Button
+                            variant="outline"
+                            onClick={() => {
+                              setIsBlockedDialogOpen(false);
+                              setNewBlocked({ date: '', time: '', professionalId: '', reason: '' });
+                            }}
+                          >
+                            Cancelar
+                          </Button>
+                          <Button onClick={handleAddBlocked}>
+                            Salvar
+                          </Button>
+                        </DialogFooter>
+                      </div>
+                    </DialogContent>
+                  </Dialog>
+                  <Button onClick={loadBlockedSlots} variant="outline" size="sm">
+                    Atualizar
+                  </Button>
+                </div>
+              </CardHeader>
+              <CardContent>
+                {loadingBlocked ? (
+                  <div className="flex justify-center py-8">
+                    <Loader2 className="h-8 w-8 animate-spin text-primary" />
+                  </div>
+                ) : (
+                  <div className="overflow-x-auto">
+                    <Table>
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead>Data</TableHead>
+                          <TableHead>Horário</TableHead>
+                          <TableHead>Profissional</TableHead>
+                          <TableHead>Motivo</TableHead>
+                          <TableHead>Ações</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {blockedSlots.length === 0 ? (
+                          <TableRow>
+                            <TableCell colSpan={5} className="text-center py-8 text-muted-foreground">
+                              Nenhum bloqueio encontrado
+                            </TableCell>
+                          </TableRow>
+                        ) : (
+                          blockedSlots.map((blocked) => {
+                            const professional = blocked.professionals;
+                            return (
+                              <TableRow key={blocked.id}>
+                                <TableCell>
+                                  {formatDateString(blocked.blocked_date)}
+                                </TableCell>
+                                <TableCell>
+                                  {blocked.blocked_time ? (
+                                    <Badge variant="outline">{blocked.blocked_time}</Badge>
+                                  ) : (
+                                    <Badge variant="destructive">Dia inteiro</Badge>
+                                  )}
+                                </TableCell>
+                                <TableCell>
+                                  {professional?.name || 'N/A'}
+                                </TableCell>
+                                <TableCell>
+                                  {blocked.reason || (
+                                    <span className="text-muted-foreground">-</span>
+                                  )}
+                                </TableCell>
+                                <TableCell>
+                                  <Button
+                                    variant="ghost"
+                                    size="icon"
+                                    onClick={() => handleDeleteBlocked(blocked.id)}
+                                    title="Remover bloqueio"
+                                  >
+                                    <Trash2 className="h-4 w-4 text-destructive" />
+                                  </Button>
+                                </TableCell>
+                              </TableRow>
+                            );
+                          })
                         )}
                       </TableBody>
                     </Table>

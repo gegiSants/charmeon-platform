@@ -23,6 +23,15 @@ export interface TimeSlot {
   available: boolean;
 }
 
+// Função helper para converter Date para string YYYY-MM-DD preservando a data local
+// Isso evita problemas de timezone onde toISOString() pode mudar o dia
+function formatDateLocal(date: Date): string {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
+
 export const useProfessionals = () => {
   const [professionals, setProfessionals] = useState<Professional[]>([]);
   const [loading, setLoading] = useState(true);
@@ -81,34 +90,74 @@ export const useServices = (professionalId: string | null) => {
 };
 
 export const generateTimeSlots = async (date: Date, professionalId: string): Promise<TimeSlot[]> => {
-  const dateStr = date.toISOString().split('T')[0];
+  const dateStr = formatDateLocal(date);
 
-  // Buscar horários disponíveis do banco (específicos do profissional ou globais)
-  const { data: availableHours } = await supabase
+  // Buscar APENAS horários específicos da profissional (sem globais)
+  const { data: specificHours, error: specificError } = await supabase
     .from('available_hours')
     .select('time')
     .eq('is_active', true)
-    .or(`professional_id.eq.${professionalId},professional_id.is.null`)
+    .eq('professional_id', professionalId)
     .order('time');
 
-  // Se não houver horários configurados, usar padrão
-  const hours = availableHours && availableHours.length > 0
-    ? availableHours.map(h => h.time)
-    : ['08:00', '09:00', '10:00', '11:00', '13:00', '14:00', '15:00', '16:00'];
+  if (specificError) {
+    console.error('Erro ao buscar horários específicos:', specificError);
+  }
+
+  // Usar apenas horários específicos da profissional
+  let hours: string[] = specificHours && specificHours.length > 0
+    ? specificHours.map(h => h.time)
+    : []; // Se não tiver horários configurados, retorna vazio (profissional não tem horários disponíveis)
+
+  // IMPORTANTE: Não usar horários padrão se a profissional não tiver configurado
+  // Cada profissional deve configurar seus próprios horários no admin
+
+  // Buscar bloqueios de agenda (dias/horários indisponíveis)
+  const { data: blockedSlots, error: blockedError } = await supabase
+    .from('blocked_slots')
+    .select('blocked_time')
+    .eq('professional_id', professionalId)
+    .eq('blocked_date', dateStr);
+
+  if (blockedError) {
+    console.error('Erro ao buscar bloqueios:', blockedError);
+  }
+
+  // Se o dia inteiro estiver bloqueado (blocked_time IS NULL), retornar todos como indisponíveis
+  const dayBlocked = blockedSlots?.some(slot => !slot.blocked_time) || false;
+  if (dayBlocked) {
+    return hours.map(hour => ({
+      time: hour,
+      available: false,
+    }));
+  }
+
+  // Criar Set com horários bloqueados (apenas horários específicos)
+  const blockedTimes = new Set(
+    blockedSlots?.filter(slot => slot.blocked_time).map(slot => slot.blocked_time) || []
+  );
 
   // Buscar agendamentos existentes para esta data e profissional
-  const { data: existingAppointments } = await supabase
+  // IMPORTANTE: Buscar TODOS os agendamentos não cancelados (pending, confirmed, etc.)
+  const { data: existingAppointments, error: appointmentsError } = await supabase
     .from('appointments')
-    .select('appointment_time')
+    .select('appointment_time, status')
     .eq('professional_id', professionalId)
     .eq('appointment_date', dateStr)
-    .neq('status', 'cancelled');
+    .in('status', ['pending', 'confirmed']); // Apenas agendamentos ativos
 
-  const bookedTimes = new Set(existingAppointments?.map(a => a.appointment_time) || []);
+  if (appointmentsError) {
+    console.error('Erro ao buscar agendamentos existentes:', appointmentsError);
+  }
+
+  // Criar Set com horários ocupados
+  const bookedTimes = new Set(
+    existingAppointments?.map(a => a.appointment_time) || []
+  );
 
   return hours.map(hour => ({
     time: hour,
-    available: !bookedTimes.has(hour),
+    available: !blockedTimes.has(hour) && !bookedTimes.has(hour),
   }));
 };
 
@@ -156,7 +205,7 @@ export const createAppointment = async (data: {
   paymentType: 'sinal' | 'total';
   totalAmount: number;
 }) => {
-  const dateStr = data.date.toISOString().split('T')[0];
+  const dateStr = formatDateLocal(data.date);
 
   // VALIDAÇÃO CRÍTICA: Verificar se já existe agendamento para este horário, profissional e data
   const { data: existingAppointment, error: checkError } = await supabase
