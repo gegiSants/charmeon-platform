@@ -114,6 +114,24 @@ const Admin = () => {
   const [studioInfo, setStudioInfo] = useState<any>(null);
   const [loadingStudioInfo, setLoadingStudioInfo] = useState(false);
   const [savingStudioInfo, setSavingStudioInfo] = useState(false);
+  
+  // Estados para agendamento manual
+  const [isManualAppointmentDialogOpen, setIsManualAppointmentDialogOpen] = useState(false);
+  const [newManualAppointment, setNewManualAppointment] = useState({
+    client_name: '',
+    client_phone: '',
+    client_email: '',
+    professional_id: '',
+    service_id: '',
+    appointment_date: '',
+    appointment_time: '',
+    status: 'confirmed' as 'pending' | 'confirmed' | 'completed' | 'cancelled',
+    total_amount: '',
+    amount_paid: '',
+    force_override: false
+  });
+  const [loadingManualAppointment, setLoadingManualAppointment] = useState(false);
+  const [manualAppointmentServices, setManualAppointmentServices] = useState<any[]>([]);
 
   // Verificar configuração do Supabase
   useEffect(() => {
@@ -132,6 +150,39 @@ const Admin = () => {
       loadServices(selectedProfessional);
     }
   }, [selectedProfessional]);
+
+  // Carregar serviços para agendamento manual
+  const loadServicesForManualAppointment = async (professionalId: string) => {
+    try {
+      const { data, error: queryError } = await supabase
+        .from('services')
+        .select('*')
+        .eq('professional_id', professionalId)
+        .order('name');
+
+      if (queryError) {
+        console.error('Error loading services:', queryError);
+        toast.error(`Erro ao carregar serviços: ${queryError.message}`);
+        setManualAppointmentServices([]);
+      } else {
+        setManualAppointmentServices(data || []);
+      }
+    } catch (err: any) {
+      console.error('Unexpected error loading services:', err);
+      toast.error('Erro inesperado ao carregar serviços');
+      setManualAppointmentServices([]);
+    }
+  };
+
+  // Carregar serviços quando profissional é selecionada no formulário de agendamento manual
+  useEffect(() => {
+    if (newManualAppointment.professional_id) {
+      loadServicesForManualAppointment(newManualAppointment.professional_id);
+    } else {
+      setManualAppointmentServices([]);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [newManualAppointment.professional_id]);
 
   // Carregar categorias
   const loadCategories = async () => {
@@ -805,6 +856,132 @@ const Admin = () => {
     }
   };
 
+  // Criar agendamento manual
+  const handleAddManualAppointment = async () => {
+    if (!newManualAppointment.client_name.trim()) {
+      toast.error('Nome do cliente é obrigatório');
+      return;
+    }
+    if (!newManualAppointment.client_phone.trim()) {
+      toast.error('Telefone do cliente é obrigatório');
+      return;
+    }
+    if (!newManualAppointment.professional_id) {
+      toast.error('Selecione uma profissional');
+      return;
+    }
+    if (!newManualAppointment.service_id) {
+      toast.error('Selecione um serviço');
+      return;
+    }
+    if (!newManualAppointment.appointment_date) {
+      toast.error('Selecione uma data');
+      return;
+    }
+    if (!newManualAppointment.appointment_time) {
+      toast.error('Selecione um horário');
+      return;
+    }
+    if (!newManualAppointment.total_amount || parseFloat(newManualAppointment.total_amount) <= 0) {
+      toast.error('Valor total deve ser maior que zero');
+      return;
+    }
+
+    setLoadingManualAppointment(true);
+    try {
+      const dateStr = newManualAppointment.appointment_date; // Já vem no formato YYYY-MM-DD do input type="date"
+      
+      // Verificar se já existe agendamento (a menos que force_override esteja marcado)
+      if (!newManualAppointment.force_override) {
+        const { data: existingAppointment, error: checkError } = await supabase
+          .from('appointments')
+          .select('id, client_name, appointment_time')
+          .eq('professional_id', newManualAppointment.professional_id)
+          .eq('appointment_date', dateStr)
+          .eq('appointment_time', newManualAppointment.appointment_time)
+          .in('status', ['pending', 'confirmed'])
+          .maybeSingle();
+
+        if (checkError) {
+          throw new Error(`Erro ao verificar disponibilidade: ${checkError.message}`);
+        }
+
+        if (existingAppointment) {
+          toast.error(
+            `Este horário já está ocupado. Marque "Forçar criação" se deseja criar mesmo assim.`
+          );
+          setLoadingManualAppointment(false);
+          return;
+        }
+      }
+
+      // Se email foi fornecido, salvar na tabela de clientes
+      if (newManualAppointment.client_email?.trim()) {
+        const { error: emailError } = await supabase
+          .from('clients')
+          .upsert({
+            phone: newManualAppointment.client_phone.trim(),
+            email: newManualAppointment.client_email.trim(),
+            name: newManualAppointment.client_name.trim()
+          }, {
+            onConflict: 'phone'
+          });
+
+        if (emailError) {
+          console.error('Erro ao salvar email do cliente:', emailError);
+        }
+      }
+
+      const { data: appointment, error } = await supabase
+        .from('appointments')
+        .insert({
+          client_name: newManualAppointment.client_name.trim(),
+          client_phone: newManualAppointment.client_phone.trim(),
+          client_email: newManualAppointment.client_email?.trim() || null,
+          professional_id: newManualAppointment.professional_id,
+          service_id: newManualAppointment.service_id,
+          appointment_date: dateStr,
+          appointment_time: newManualAppointment.appointment_time,
+          payment_type: 'sinal', // Agendamentos manuais sempre são sinal
+          total_amount: parseFloat(newManualAppointment.total_amount),
+          amount_paid: parseFloat(newManualAppointment.amount_paid || '0'),
+          status: newManualAppointment.status,
+        })
+        .select()
+        .single();
+
+      if (error) {
+        if (error.code === '23505' || error.message.includes('duplicate') || error.message.includes('unique')) {
+          throw new Error('Este horário já está ocupado. Marque "Forçar criação" se deseja criar mesmo assim.');
+        }
+        throw error;
+      }
+
+      toast.success('Agendamento criado com sucesso!');
+      setIsManualAppointmentDialogOpen(false);
+      setNewManualAppointment({
+        client_name: '',
+        client_phone: '',
+        client_email: '',
+        professional_id: '',
+        service_id: '',
+        appointment_date: '',
+        appointment_time: '',
+        status: 'confirmed',
+        total_amount: '',
+        amount_paid: '',
+        force_override: false
+      });
+      setManualAppointmentServices([]);
+      loadAppointments();
+    } catch (err: any) {
+      console.error('Error creating manual appointment:', err);
+      toast.error(`Erro ao criar agendamento: ${err.message || 'Erro desconhecido'}`);
+    } finally {
+      setLoadingManualAppointment(false);
+    }
+  };
+
   const handleUpdateAppointmentStatus = async (id: string, newStatus: string) => {
     const { error } = await supabase
       .from('appointments')
@@ -996,7 +1173,7 @@ const Admin = () => {
             <Card>
               <CardHeader className="flex flex-row items-center justify-between flex-wrap gap-4">
                 <CardTitle className="font-serif">Agenda</CardTitle>
-                <div className="flex gap-2">
+                <div className="flex gap-2 flex-wrap">
                   <Select value={selectedProfessional} onValueChange={setSelectedProfessional}>
                     <SelectTrigger className="w-[200px]">
                       <SelectValue placeholder="Todas as profissionais" />
@@ -1011,6 +1188,184 @@ const Admin = () => {
                   <Button onClick={loadAppointments} variant="outline" size="sm">
                     Atualizar
                   </Button>
+                  <Dialog open={isManualAppointmentDialogOpen} onOpenChange={setIsManualAppointmentDialogOpen}>
+                    <DialogTrigger asChild>
+                      <Button size="sm">
+                        <Plus className="h-4 w-4 mr-2" />
+                        Adicionar Agendamento
+                      </Button>
+                    </DialogTrigger>
+                    <DialogContent className="w-[95vw] max-w-2xl max-h-[90vh] overflow-y-auto p-4 sm:p-6">
+                      <DialogHeader>
+                        <DialogTitle>Adicionar Agendamento Manual</DialogTitle>
+                      </DialogHeader>
+                      <div className="space-y-4 mt-4">
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                          <div className="space-y-2">
+                            <Label htmlFor="manual-client-name">Nome do Cliente *</Label>
+                            <Input
+                              id="manual-client-name"
+                              value={newManualAppointment.client_name}
+                              onChange={(e) => setNewManualAppointment({ ...newManualAppointment, client_name: e.target.value })}
+                              placeholder="Nome completo"
+                            />
+                          </div>
+                          <div className="space-y-2">
+                            <Label htmlFor="manual-client-phone">Telefone *</Label>
+                            <Input
+                              id="manual-client-phone"
+                              value={newManualAppointment.client_phone}
+                              onChange={(e) => setNewManualAppointment({ ...newManualAppointment, client_phone: e.target.value })}
+                              placeholder="(11) 99999-9999"
+                            />
+                          </div>
+                          <div className="space-y-2 md:col-span-2">
+                            <Label htmlFor="manual-client-email">Email (opcional)</Label>
+                            <Input
+                              id="manual-client-email"
+                              type="email"
+                              value={newManualAppointment.client_email}
+                              onChange={(e) => setNewManualAppointment({ ...newManualAppointment, client_email: e.target.value })}
+                              placeholder="cliente@email.com"
+                            />
+                          </div>
+                          <div className="space-y-2">
+                            <Label htmlFor="manual-professional">Profissional *</Label>
+                            <Select
+                              value={newManualAppointment.professional_id}
+                              onValueChange={(value) => setNewManualAppointment({ ...newManualAppointment, professional_id: value, service_id: '' })}
+                            >
+                              <SelectTrigger id="manual-professional">
+                                <SelectValue placeholder="Selecione uma profissional" />
+                              </SelectTrigger>
+                              <SelectContent>
+                                {professionals.map((pro) => (
+                                  <SelectItem key={pro.id} value={pro.id}>{pro.name}</SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
+                          </div>
+                          <div className="space-y-2">
+                            <Label htmlFor="manual-service">Serviço *</Label>
+                            <Select
+                              value={newManualAppointment.service_id}
+                              onValueChange={(value) => {
+                                const service = manualAppointmentServices.find(s => s.id === value);
+                                setNewManualAppointment({
+                                  ...newManualAppointment,
+                                  service_id: value,
+                                  total_amount: service ? service.price.toString() : ''
+                                });
+                              }}
+                              disabled={!newManualAppointment.professional_id || manualAppointmentServices.length === 0}
+                            >
+                              <SelectTrigger id="manual-service">
+                                <SelectValue placeholder={!newManualAppointment.professional_id ? "Selecione primeiro a profissional" : "Selecione um serviço"} />
+                              </SelectTrigger>
+                              <SelectContent>
+                                {manualAppointmentServices.map((service) => (
+                                  <SelectItem key={service.id} value={service.id}>
+                                    {service.name} - R$ {parseFloat(service.price).toFixed(2)}
+                                  </SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
+                          </div>
+                          <div className="space-y-2">
+                            <Label htmlFor="manual-date">Data *</Label>
+                            <Input
+                              id="manual-date"
+                              type="date"
+                              value={newManualAppointment.appointment_date}
+                              onChange={(e) => setNewManualAppointment({ ...newManualAppointment, appointment_date: e.target.value })}
+                            />
+                          </div>
+                          <div className="space-y-2">
+                            <Label htmlFor="manual-time">Horário *</Label>
+                            <Input
+                              id="manual-time"
+                              type="time"
+                              value={newManualAppointment.appointment_time}
+                              onChange={(e) => setNewManualAppointment({ ...newManualAppointment, appointment_time: e.target.value })}
+                            />
+                          </div>
+                          <div className="space-y-2">
+                            <Label htmlFor="manual-status">Status *</Label>
+                            <Select
+                              value={newManualAppointment.status}
+                              onValueChange={(value: 'pending' | 'confirmed' | 'completed' | 'cancelled') => setNewManualAppointment({ ...newManualAppointment, status: value })}
+                            >
+                              <SelectTrigger id="manual-status">
+                                <SelectValue />
+                              </SelectTrigger>
+                              <SelectContent>
+                                <SelectItem value="pending">Pendente</SelectItem>
+                                <SelectItem value="confirmed">Confirmado</SelectItem>
+                                <SelectItem value="completed">Concluído</SelectItem>
+                                <SelectItem value="cancelled">Cancelado</SelectItem>
+                              </SelectContent>
+                            </Select>
+                          </div>
+                          <div className="space-y-2">
+                            <Label htmlFor="manual-total-amount">Valor Total (R$) *</Label>
+                            <Input
+                              id="manual-total-amount"
+                              type="number"
+                              step="0.01"
+                              min="0"
+                              value={newManualAppointment.total_amount}
+                              onChange={(e) => setNewManualAppointment({ ...newManualAppointment, total_amount: e.target.value })}
+                              placeholder="0.00"
+                            />
+                          </div>
+                          <div className="space-y-2">
+                            <Label htmlFor="manual-amount-paid">Valor Pago (R$)</Label>
+                            <Input
+                              id="manual-amount-paid"
+                              type="number"
+                              step="0.01"
+                              min="0"
+                              value={newManualAppointment.amount_paid}
+                              onChange={(e) => setNewManualAppointment({ ...newManualAppointment, amount_paid: e.target.value })}
+                              placeholder="0.00"
+                            />
+                          </div>
+                        </div>
+                        <div className="flex items-center space-x-2 pt-2">
+                          <Checkbox
+                            id="force-override"
+                            checked={newManualAppointment.force_override}
+                            onCheckedChange={(checked) => setNewManualAppointment({ ...newManualAppointment, force_override: checked as boolean })}
+                          />
+                          <Label htmlFor="force-override" className="text-sm cursor-pointer">
+                            Forçar criação mesmo se o horário estiver ocupado
+                          </Label>
+                        </div>
+                      </div>
+                      <DialogFooter className="mt-6">
+                        <Button
+                          variant="outline"
+                          onClick={() => setIsManualAppointmentDialogOpen(false)}
+                          disabled={loadingManualAppointment}
+                        >
+                          Cancelar
+                        </Button>
+                        <Button
+                          onClick={handleAddManualAppointment}
+                          disabled={loadingManualAppointment}
+                        >
+                          {loadingManualAppointment ? (
+                            <>
+                              <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                              Criando...
+                            </>
+                          ) : (
+                            'Criar Agendamento'
+                          )}
+                        </Button>
+                      </DialogFooter>
+                    </DialogContent>
+                  </Dialog>
                 </div>
               </CardHeader>
               <CardContent>
