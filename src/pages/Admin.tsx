@@ -14,7 +14,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Badge } from '@/components/ui/badge';
 import { useProfessionals, useServices } from '@/hooks/useAppointments';
 import { supabase } from '@/integrations/supabase/client';
-import { Plus, Users, Scissors, Calendar, List, Phone, Clock, Trash2, Edit, Loader2, CheckCircle, XCircle, DollarSign, Mail, Ban, Upload, X, Tag, Sparkles, MapPin, Instagram, Shield, CreditCard, FileText } from 'lucide-react';
+import { Plus, Users, Scissors, Calendar, List, Phone, Clock, Trash2, Edit, Loader2, CheckCircle, XCircle, DollarSign, Mail, Ban, Upload, X, Tag, Sparkles, MapPin, Instagram, Shield, CreditCard, FileText, UserCircle } from 'lucide-react';
 import { toast } from 'sonner';
 import { format } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
@@ -1055,9 +1055,17 @@ const Admin = () => {
     );
   };
 
+  // Separar agendamentos confirmados (para aba Agenda) e leads (para aba Leads)
+  const confirmedAppointments = appointments.filter(a => a.status === 'confirmed' || a.status === 'completed');
+  const leadAppointments = appointments.filter(a => a.status === 'pending');
+  
   const filteredAppointments = selectedProfessional && selectedProfessional !== 'all'
-    ? appointments.filter(a => a.professional_id === selectedProfessional)
-    : appointments;
+    ? confirmedAppointments.filter(a => a.professional_id === selectedProfessional)
+    : confirmedAppointments;
+    
+  const filteredLeads = selectedProfessional && selectedProfessional !== 'all'
+    ? leadAppointments.filter(a => a.professional_id === selectedProfessional)
+    : leadAppointments;
 
   const uniqueClients = Array.from(
     new Map(
@@ -1134,6 +1142,11 @@ const Admin = () => {
                 <Calendar className="h-3 w-3 sm:h-4 sm:w-4" />
                 <span className="hidden xs:inline">Agenda</span>
                 <span className="xs:hidden">Ag.</span>
+              </TabsTrigger>
+              <TabsTrigger value="leads" className="gap-1 sm:gap-2 text-xs sm:text-sm whitespace-nowrap">
+                <UserCircle className="h-3 w-3 sm:h-4 sm:w-4" />
+                <span className="hidden xs:inline">Leads</span>
+                <span className="xs:hidden">Ld.</span>
               </TabsTrigger>
               <TabsTrigger value="professionals" className="gap-1 sm:gap-2 text-xs sm:text-sm whitespace-nowrap">
                 <Users className="h-3 w-3 sm:h-4 sm:w-4" />
@@ -1489,6 +1502,144 @@ const Admin = () => {
                                       title="Enviar email de confirmação"
                                     >
                                       {sendingEmail === apt.id ? (
+                                        <Loader2 className="h-3 w-3 sm:h-4 sm:w-4 animate-spin" />
+                                      ) : (
+                                        <Mail className="h-3 w-3 sm:h-4 sm:w-4" />
+                                      )}
+                                    </Button>
+                                  </div>
+                                </TableCell>
+                              </TableRow>
+                            );
+                          })
+                        )}
+                      </TableBody>
+                    </Table>
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          </TabsContent>
+
+          {/* Tab: Leads */}
+          <TabsContent value="leads">
+            <Card>
+              <CardHeader className="flex flex-row items-center justify-between flex-wrap gap-4">
+                <CardTitle className="font-serif">Leads (Clientes que não pagaram)</CardTitle>
+                <div className="flex gap-2 flex-wrap">
+                  <Select value={selectedProfessional} onValueChange={setSelectedProfessional}>
+                    <SelectTrigger className="w-[200px]">
+                      <SelectValue placeholder="Todas as profissionais" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">Todas as profissionais</SelectItem>
+                      {professionals.map((pro) => (
+                        <SelectItem key={pro.id} value={pro.id}>{pro.name}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <Button onClick={loadAppointments} variant="outline" size="sm">
+                    Atualizar
+                  </Button>
+                </div>
+              </CardHeader>
+              <CardContent>
+                {loadingAppointments ? (
+                  <div className="flex justify-center py-8">
+                    <Loader2 className="h-8 w-8 animate-spin text-primary" />
+                  </div>
+                ) : (
+                  <div className="overflow-x-auto">
+                    <Table>
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead className="text-xs sm:text-sm">Data</TableHead>
+                          <TableHead className="text-xs sm:text-sm">Horário</TableHead>
+                          <TableHead className="text-xs sm:text-sm">Cliente</TableHead>
+                          <TableHead className="text-xs sm:text-sm hidden sm:table-cell">Serviço</TableHead>
+                          <TableHead className="text-xs sm:text-sm hidden md:table-cell">Valor</TableHead>
+                          <TableHead className="text-xs sm:text-sm">Criado em</TableHead>
+                          <TableHead className="text-xs sm:text-sm">Ações</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {filteredLeads.length === 0 ? (
+                          <TableRow>
+                            <TableCell colSpan={7} className="text-center py-8 text-muted-foreground">
+                              Nenhum lead encontrado
+                            </TableCell>
+                          </TableRow>
+                        ) : (
+                          filteredLeads.map((lead) => {
+                            const service = lead.services;
+                            const professional = lead.professionals;
+                            
+                            return (
+                              <TableRow key={lead.id}>
+                                <TableCell className="text-xs sm:text-sm">
+                                  {formatDateString(lead.appointment_date)}
+                                </TableCell>
+                                <TableCell className="text-xs sm:text-sm">{lead.appointment_time}</TableCell>
+                                <TableCell>
+                                  <div>
+                                    <p className="font-medium text-xs sm:text-sm">{lead.client_name}</p>
+                                    <a
+                                      href={`https://wa.me/55${lead.client_phone.replace(/\D/g, '')}`}
+                                      target="_blank"
+                                      rel="noopener noreferrer"
+                                      className="text-xs text-primary hover:underline flex items-center gap-1"
+                                    >
+                                      <Phone className="h-3 w-3" />
+                                      {lead.client_phone}
+                                    </a>
+                                  </div>
+                                </TableCell>
+                                <TableCell className="hidden sm:table-cell">
+                                  <div>
+                                    <p className="font-medium text-xs sm:text-sm">{service?.name || 'N/A'}</p>
+                                    <p className="text-xs text-muted-foreground">
+                                      {professional?.name || 'N/A'}
+                                    </p>
+                                  </div>
+                                </TableCell>
+                                <TableCell className="hidden md:table-cell">
+                                  <div className="text-xs sm:text-sm">
+                                    <div className="flex items-center gap-1">
+                                      <DollarSign className="h-3 w-3" />
+                                      <span>Total: R$ {Number(lead.total_amount).toFixed(2)}</span>
+                                    </div>
+                                    <div className="text-xs text-muted-foreground mt-1">
+                                      {lead.payment_type === 'sinal' ? 'Sinal (PIX)' : 'Total (Cartão)'}
+                                    </div>
+                                  </div>
+                                </TableCell>
+                                <TableCell className="text-xs sm:text-sm text-muted-foreground">
+                                  {format(new Date(lead.created_at), "dd/MM/yyyy HH:mm", { locale: ptBR })}
+                                </TableCell>
+                                <TableCell>
+                                  <div className="flex flex-col sm:flex-row gap-2 items-start sm:items-center">
+                                    <Select
+                                      value={lead.status}
+                                      onValueChange={(value) => handleUpdateAppointmentStatus(lead.id, value)}
+                                    >
+                                      <SelectTrigger className="w-full sm:w-[140px] text-xs sm:text-sm">
+                                        <SelectValue />
+                                      </SelectTrigger>
+                                      <SelectContent>
+                                        <SelectItem value="pending">Pendente</SelectItem>
+                                        <SelectItem value="confirmed">Confirmar</SelectItem>
+                                        <SelectItem value="cancelled">Cancelar</SelectItem>
+                                      </SelectContent>
+                                    </Select>
+                                    <Button
+                                      variant="outline"
+                                      size="icon"
+                                      className="h-8 w-8 sm:h-10 sm:w-10"
+                                      onClick={() => handleSendEmail(lead.id)}
+                                      disabled={sendingEmail === lead.id}
+                                      title="Enviar email de confirmação"
+                                    >
+                                      {sendingEmail === lead.id ? (
                                         <Loader2 className="h-3 w-3 sm:h-4 sm:w-4 animate-spin" />
                                       ) : (
                                         <Mail className="h-3 w-3 sm:h-4 sm:w-4" />

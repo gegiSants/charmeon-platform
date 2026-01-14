@@ -33,8 +33,8 @@ serve(async (req) => {
     // Converter amount para número e verificar se é 0 (para testes)
     const amountNum = typeof amount === 'string' ? parseFloat(amount) : Number(amount);
 
-    // Se o valor for 0 (ou muito próximo de 0), marcar agendamento como confirmado diretamente (para testes)
-    if (amountNum === 0 || (Math.abs(amountNum) < 0.01)) {
+    // Se o valor for 0 ou muito baixo (<= 0.01 = 1 centavo), marcar agendamento como confirmado diretamente (para testes)
+    if (amountNum === 0 || (Math.abs(amountNum) <= 0.01)) {
       const supabaseClient = createClient(
         Deno.env.get("SUPABASE_URL") ?? "",
         Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "",

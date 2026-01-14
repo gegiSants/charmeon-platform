@@ -145,22 +145,93 @@ export const generateTimeSlots = async (date: Date, professionalId: string): Pro
   );
 
   // Buscar agendamentos existentes para esta data e profissional
-  // IMPORTANTE: Buscar TODOS os agendamentos não cancelados (pending, confirmed, etc.)
+  // IMPORTANTE: Só bloquear horários de agendamentos CONFIRMADOS (com pagamento confirmado)
+  // Agendamentos 'pending' NÃO ocupam o horário, pois o cliente pode não pagar
   const { data: existingAppointments, error: appointmentsError } = await supabase
     .from('appointments')
-    .select('appointment_time, status')
+    .select('appointment_time, status, service_id')
     .eq('professional_id', professionalId)
     .eq('appointment_date', dateStr)
-    .in('status', ['pending', 'confirmed']); // Apenas agendamentos ativos
+    .in('status', ['confirmed', 'completed']); // Apenas agendamentos com pagamento confirmado
 
   if (appointmentsError) {
     console.error('Erro ao buscar agendamentos existentes:', appointmentsError);
   }
 
-  // Criar Set com horários ocupados
-  const bookedTimes = new Set(
-    existingAppointments?.map(a => a.appointment_time) || []
-  );
+  // Buscar durações dos serviços dos agendamentos existentes
+  const serviceIds = existingAppointments?.filter(a => a.service_id).map(a => a.service_id) || [];
+  let serviceDurations: Map<string, number> = new Map();
+  
+  if (serviceIds.length > 0) {
+    const { data: services, error: servicesError } = await supabase
+      .from('services')
+      .select('id, duration')
+      .in('id', serviceIds);
+    
+    if (servicesError) {
+      console.error('Erro ao buscar durações dos serviços:', servicesError);
+    } else if (services) {
+      services.forEach(service => {
+        serviceDurations.set(service.id, service.duration);
+      });
+    }
+  }
+
+  // Função helper para adicionar minutos a um horário (formato "HH:MM")
+  const addMinutes = (time: string, minutes: number): string => {
+    const [h, m] = time.split(':').map(Number);
+    const totalMinutes = h * 60 + m + minutes;
+    const newHours = Math.floor(totalMinutes / 60);
+    const newMinutes = totalMinutes % 60;
+    return `${String(newHours).padStart(2, '0')}:${String(newMinutes).padStart(2, '0')}`;
+  };
+
+  // Função helper para converter horário "HH:MM" para minutos desde meia-noite
+  const timeToMinutes = (time: string): number => {
+    const [h, m] = time.split(':').map(Number);
+    return h * 60 + m;
+  };
+
+  // Função helper para verificar se um horário está dentro de um intervalo
+  const isTimeInRange = (time: string, startTime: string, endTime: string): boolean => {
+    const timeMin = timeToMinutes(time);
+    const startMin = timeToMinutes(startTime);
+    const endMin = timeToMinutes(endTime);
+    return timeMin >= startMin && timeMin < endMin; // endTime não está incluído (intervalo aberto à direita)
+  };
+
+  // Criar Set com horários ocupados (incluindo todos os horários onde o serviço está em andamento)
+  const bookedTimes = new Set<string>();
+  
+  if (existingAppointments) {
+    for (const appointment of existingAppointments) {
+      const startTime = appointment.appointment_time;
+      
+      // Se tiver serviço, buscar duração e bloquear todos os horários onde o serviço está em andamento
+      if (appointment.service_id) {
+        const duration = serviceDurations.get(appointment.service_id);
+        if (duration && duration > 0) {
+          // Calcular horário de término (início + duração em minutos)
+          const endTime = addMinutes(startTime, duration);
+          
+          // Bloquear todos os horários disponíveis que estão dentro do intervalo [startTime, endTime)
+          // Exemplo: serviço de 120 min começando às 09:00 termina às 11:00
+          // Bloqueia 09:00 e 10:00 (mas não 11:00, pois o serviço termina exatamente às 11:00)
+          for (const hour of hours) {
+            if (isTimeInRange(hour, startTime, endTime)) {
+              bookedTimes.add(hour);
+            }
+          }
+        } else {
+          // Se não tiver duração, bloquear apenas o horário inicial
+          bookedTimes.add(startTime);
+        }
+      } else {
+        // Se não tiver serviço, bloquear apenas o horário inicial
+        bookedTimes.add(startTime);
+      }
+    }
+  }
 
   return hours.map(hour => ({
     time: hour,
@@ -201,6 +272,21 @@ export const saveClientEmail = async (phone: string, email: string, name?: strin
   }
 };
 
+// Função helper para adicionar minutos a um horário (reutilizada de generateTimeSlots)
+function addMinutesToTime(time: string, minutes: number): string {
+  const [h, m] = time.split(':').map(Number);
+  const totalMinutes = h * 60 + m + minutes;
+  const newHours = Math.floor(totalMinutes / 60);
+  const newMinutes = totalMinutes % 60;
+  return `${String(newHours).padStart(2, '0')}:${String(newMinutes).padStart(2, '0')}`;
+}
+
+// Função helper para converter horário para minutos
+function timeToMinutesFromMidnight(time: string): number {
+  const [h, m] = time.split(':').map(Number);
+  return h * 60 + m;
+}
+
 export const createAppointment = async (data: {
   clientName: string;
   clientPhone: string;
@@ -214,25 +300,117 @@ export const createAppointment = async (data: {
 }) => {
   const dateStr = formatDateLocal(data.date);
 
-  // VALIDAÇÃO CRÍTICA: Verificar se já existe agendamento para este horário, profissional e data
-  const { data: existingAppointment, error: checkError } = await supabase
-    .from('appointments')
-    .select('id, client_name, appointment_time')
-    .eq('professional_id', data.professionalId)
-    .eq('appointment_date', dateStr)
-    .eq('appointment_time', data.time)
-    .neq('status', 'cancelled')
-    .maybeSingle();
+  // Buscar duração do serviço
+  const { data: service, error: serviceError } = await supabase
+    .from('services')
+    .select('duration')
+    .eq('id', data.serviceId)
+    .single();
 
-  if (checkError) {
-    throw new Error(`Erro ao verificar disponibilidade: ${checkError.message}`);
+  if (serviceError || !service) {
+    throw new Error('Erro ao buscar informações do serviço');
   }
 
-  if (existingAppointment) {
-    throw new Error(
-      `Este horário (${data.time}) já está ocupado para esta profissional nesta data. ` +
-      `Por favor, escolha outro horário.`
-    );
+  const serviceDuration = service.duration;
+
+  // Buscar horários disponíveis da profissional
+  const { data: availableHours, error: hoursError } = await supabase
+    .from('available_hours')
+    .select('time')
+    .eq('professional_id', data.professionalId)
+    .eq('is_active', true)
+    .order('time');
+
+  if (hoursError) {
+    throw new Error('Erro ao verificar horários disponíveis');
+  }
+
+  const hours = (availableHours || []).map(h => h.time);
+
+  // Calcular horário de término do serviço
+  const endTime = addMinutesToTime(data.time, serviceDuration);
+
+  // VALIDAÇÃO: Verificar se há espaço suficiente nos horários disponíveis
+  // O serviço precisa caber dentro dos horários disponíveis
+  const startMinutes = timeToMinutesFromMidnight(data.time);
+  const endMinutes = timeToMinutesFromMidnight(endTime);
+  
+  // Verificar se o horário de início está nos horários disponíveis
+  if (!hours.includes(data.time)) {
+    throw new Error(`O horário ${data.time} não está disponível para esta profissional.`);
+  }
+
+  // VALIDAÇÃO CRÍTICA: Verificar se o horário de término está dentro dos horários disponíveis
+  // Se os horários disponíveis são 08:00-12:00 (finalizando 13:00), e o serviço de 3h começa às 12:00,
+  // ele vai até 15:00, o que está fora dos horários disponíveis - NÃO DEVE PERMITIR
+  if (hours.length > 0) {
+    const lastAvailableHour = hours[hours.length - 1];
+    const lastAvailableMinutes = timeToMinutesFromMidnight(lastAvailableHour);
+    
+    // O serviço não pode terminar depois do último horário disponível
+    // (considerando que o último horário disponível permite serviços de até 1 hora)
+    // Na verdade, precisamos verificar se há horários disponíveis suficientes para a duração
+    // Verificar se o horário de término está dentro dos horários disponíveis
+    const serviceEndsWithinAvailableHours = endMinutes <= (lastAvailableMinutes + 60); // +60 minutos (1 hora) para o último horário
+    
+    if (!serviceEndsWithinAvailableHours) {
+      throw new Error(
+        `Não há espaço suficiente para este serviço (${serviceDuration} min) no horário ${data.time}. ` +
+        `O serviço terminaria às ${endTime}, mas os horários disponíveis terminam às ${lastAvailableHour}.`
+      );
+    }
+  }
+
+  // Buscar agendamentos existentes que podem conflitar
+  // IMPORTANTE: Só verificar conflitos com agendamentos CONFIRMADOS (com pagamento confirmado)
+  // Agendamentos 'pending' NÃO ocupam o horário
+  const { data: existingAppointments, error: appointmentsError } = await supabase
+    .from('appointments')
+    .select('appointment_time, status, service_id')
+    .eq('professional_id', data.professionalId)
+    .eq('appointment_date', dateStr)
+    .in('status', ['confirmed', 'completed']);
+
+  if (appointmentsError) {
+    throw new Error(`Erro ao verificar disponibilidade: ${appointmentsError.message}`);
+  }
+
+  // Se houver agendamentos existentes, verificar conflitos considerando durações
+  if (existingAppointments && existingAppointments.length > 0) {
+    // Buscar durações dos serviços dos agendamentos existentes
+    const serviceIds = existingAppointments.filter(a => a.service_id).map(a => a.service_id) || [];
+    let serviceDurations: Map<string, number> = new Map();
+    
+    if (serviceIds.length > 0) {
+      const { data: services, error: servicesError } = await supabase
+        .from('services')
+        .select('id, duration')
+        .in('id', serviceIds);
+      
+      if (!servicesError && services) {
+        services.forEach(s => {
+          serviceDurations.set(s.id, s.duration);
+        });
+      }
+    }
+
+    // Verificar conflitos
+    for (const appointment of existingAppointments) {
+      const existingStartTime = appointment.appointment_time;
+      const existingDuration = appointment.service_id ? serviceDurations.get(appointment.service_id) || 0 : 0;
+      const existingEndTime = addMinutesToTime(existingStartTime, existingDuration);
+      
+      const existingStartMinutes = timeToMinutesFromMidnight(existingStartTime);
+      const existingEndMinutes = timeToMinutesFromMidnight(existingEndTime);
+
+      // Verificar se há sobreposição: [startTime, endTime) intersecta [existingStartTime, existingEndTime)
+      if (!(endMinutes <= existingStartMinutes || startMinutes >= existingEndMinutes)) {
+        throw new Error(
+          `Este horário conflita com um agendamento existente (${existingStartTime}). ` +
+          `Por favor, escolha outro horário.`
+        );
+      }
+    }
   }
 
   // Se email foi fornecido, salvar na tabela de clientes
