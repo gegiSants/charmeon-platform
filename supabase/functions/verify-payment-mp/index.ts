@@ -102,6 +102,17 @@ serve(async (req) => {
     }
 
     if (paid && appointmentId) {
+      // Buscar dados completos do agendamento com profissional e serviço
+      const { data: appointmentData, error: fetchError } = await supabaseClient
+        .from('appointments')
+        .select('*, professionals:professional_id(id, name, specialty, phone, photo_url), services:service_id(id, name, price, duration, photo_url)')
+        .eq('id', appointmentId)
+        .single();
+
+      if (fetchError) {
+        logStep("Error fetching appointment data", { error: fetchError.message });
+      }
+
       // Atualizar status do agendamento - manter como 'pending' até confirmação via WhatsApp
       // O status será mudado para 'confirmed' quando o cliente confirmar via WhatsApp
       const updateData: any = {
@@ -125,6 +136,86 @@ serve(async (req) => {
         logStep("Error updating appointment", { error: updateError.message });
       } else {
         logStep("Appointment updated successfully - payment confirmed, awaiting WhatsApp confirmation");
+        
+        // Enviar mensagem via WhatsApp através do webhook do n8n
+        if (appointmentData) {
+          try {
+            const n8nWebhookUrl = "https://n8n.codethio.com/webhook/charmeon";
+            
+            // Preparar dados para enviar ao n8n
+            // O Supabase retorna relacionamentos como objetos únicos (não arrays) quando há foreign key
+            const professional = Array.isArray(appointmentData.professionals) 
+              ? appointmentData.professionals[0] 
+              : appointmentData.professionals;
+            
+            const service = Array.isArray(appointmentData.services) 
+              ? appointmentData.services[0] 
+              : appointmentData.services;
+
+            const webhookData = {
+              appointment: {
+                id: appointmentData.id,
+                client_name: appointmentData.client_name,
+                client_phone: appointmentData.client_phone,
+                appointment_date: appointmentData.appointment_date,
+                appointment_time: appointmentData.appointment_time,
+                payment_type: appointmentData.payment_type,
+                amount_paid: amount,
+                total_amount: appointmentData.total_amount,
+                status: appointmentData.status,
+                created_at: appointmentData.created_at,
+              },
+              professional: professional ? {
+                id: professional.id,
+                name: professional.name,
+                specialty: professional.specialty,
+                phone: professional.phone,
+                photo_url: professional.photo_url,
+              } : null,
+              service: service ? {
+                id: service.id,
+                name: service.name,
+                price: service.price,
+                duration: service.duration,
+                photo_url: service.photo_url,
+              } : null,
+            };
+
+            logStep("Sending WhatsApp notification via n8n webhook", { appointmentId });
+            
+            const webhookResponse = await fetch(n8nWebhookUrl, {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+              },
+              body: JSON.stringify(webhookData),
+            });
+
+            if (webhookResponse.ok) {
+              logStep("WhatsApp notification sent successfully");
+              
+              // Atualizar coluna whatsapp_confirmation_sent para true
+              await supabaseClient
+                .from('appointments')
+                .update({ 
+                  whatsapp_confirmation_sent: true,
+                  whatsapp_confirmation_sent_at: new Date().toISOString()
+                })
+                .eq('id', appointmentId);
+            } else {
+              const errorText = await webhookResponse.text();
+              logStep("Error sending WhatsApp notification", { 
+                status: webhookResponse.status,
+                error: errorText 
+              });
+            }
+          } catch (webhookError) {
+            logStep("Exception sending WhatsApp notification", { 
+              error: webhookError instanceof Error ? webhookError.message : String(webhookError) 
+            });
+            // Não falhar o processo se o webhook falhar
+          }
+        }
       }
     }
 
