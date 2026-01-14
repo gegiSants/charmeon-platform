@@ -11,6 +11,21 @@ const logStep = (step: string, details?: any) => {
   console.log(`[VERIFY-PAYMENT-MP] ${step}${detailsStr}`);
 };
 
+// Função para formatar telefone: remover caracteres especiais e adicionar código 55 se necessário
+const formatPhoneForWebhook = (phone: string): string => {
+  if (!phone) return '';
+  
+  // Remover todos os caracteres não numéricos
+  let cleaned = phone.replace(/\D/g, '');
+  
+  // Se não começar com 55, adicionar
+  if (!cleaned.startsWith('55')) {
+    cleaned = '55' + cleaned;
+  }
+  
+  return cleaned;
+};
+
 serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response(null, { headers: corsHeaders });
@@ -156,7 +171,7 @@ serve(async (req) => {
               appointment: {
                 id: appointmentData.id,
                 client_name: appointmentData.client_name,
-                client_phone: appointmentData.client_phone,
+                client_phone: formatPhoneForWebhook(appointmentData.client_phone),
                 appointment_date: appointmentData.appointment_date,
                 appointment_time: appointmentData.appointment_time,
                 payment_type: appointmentData.payment_type,
