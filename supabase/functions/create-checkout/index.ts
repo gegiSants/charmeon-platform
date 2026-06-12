@@ -1,12 +1,10 @@
 import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.57.2";
-
-const corsHeaders = {
-  "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
-};
+import { getCorsHeaders } from "../_shared/cors.ts";
 
 serve(async (req) => {
+  const corsHeaders = getCorsHeaders(req.headers.get("Origin"));
+
   if (req.method === "OPTIONS") {
     return new Response(null, { headers: corsHeaders });
   }
@@ -25,16 +23,18 @@ serve(async (req) => {
       appointmentTime 
     } = await req.json();
 
-    // Validar campos obrigatórios (permitir amount === 0 para testes)
     if (amount === undefined || amount === null || !serviceName || !clientName) {
       throw new Error("Campos obrigatórios: amount, serviceName, clientName");
     }
 
-    // Converter amount para número e verificar se é 0 (para testes)
     const amountNum = typeof amount === 'string' ? parseFloat(amount) : Number(amount);
 
-    // Se o valor for 0 ou muito baixo (<= 0.01 = 1 centavo), marcar agendamento como confirmado diretamente (para testes)
-    if (amountNum === 0 || (Math.abs(amountNum) <= 0.01)) {
+    const allowTestPayment = Deno.env.get("ALLOW_TEST_PAYMENT") === "true";
+    const testSecret = Deno.env.get("TEST_PAYMENT_SECRET");
+    const providedTestSecret = req.headers.get("x-test-secret");
+
+    if (allowTestPayment && testSecret && providedTestSecret === testSecret &&
+        (amountNum === 0 || Math.abs(amountNum) <= 0.01)) {
       const supabaseClient = createClient(
         Deno.env.get("SUPABASE_URL") ?? "",
         Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "",

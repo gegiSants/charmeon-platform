@@ -1,10 +1,7 @@
 import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.57.2";
-
-const corsHeaders = {
-  "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
-};
+import { getCorsHeaders } from "../_shared/cors.ts";
+import { generateConfirmationToken } from "../_shared/tokens.ts";
 
 interface Appointment {
   id: string;
@@ -21,6 +18,8 @@ interface Appointment {
 }
 
 serve(async (req) => {
+  const corsHeaders = getCorsHeaders(req.headers.get("Origin"));
+
   if (req.method === "OPTIONS") {
     return new Response(null, { headers: corsHeaders });
   }
@@ -93,17 +92,11 @@ serve(async (req) => {
 
     // Criar links de confirmação
     let baseUrl = Deno.env.get("SITE_URL") || "https://seu-site.com";
-    // Remover barras no final e /api se existir
     baseUrl = baseUrl.trim().replace(/\/+$/, '').replace(/\/api$/, '');
-    const confirmUrl = `${baseUrl}/confirmar?token=${apt.id}&action=confirm`;
-    const cancelUrl = `${baseUrl}/confirmar?token=${apt.id}&action=cancel`;
-    
-    console.log('📧 URLs gerados:', {
-      baseUrl,
-      confirmUrl,
-      cancelUrl,
-      appointmentId: apt.id
-    });
+    const confirmToken = await generateConfirmationToken(apt.id, "confirm");
+    const cancelToken = await generateConfirmationToken(apt.id, "cancel");
+    const confirmUrl = `${baseUrl}/confirmar?token=${encodeURIComponent(confirmToken)}&action=confirm`;
+    const cancelUrl = `${baseUrl}/confirmar?token=${encodeURIComponent(cancelToken)}&action=cancel`;
 
     // Escapar valores para HTML
     const clientNameEscaped = escapeHtml(apt.client_name);

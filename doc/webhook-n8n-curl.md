@@ -1,15 +1,18 @@
 # Comando cURL para Teste do Webhook n8n
 
 ## URL do Webhook
+
+Configure a variável de ambiente `N8N_WEBHOOK_URL` (mesmo valor usado nas Edge Functions).
+
 ```
-https://n8n.codethio.com/webhook/charmeon
+POST $N8N_WEBHOOK_URL
 ```
 
 ## Comando cURL Completo
 
 ### Linux/Mac/Git Bash
 ```bash
-curl -X POST https://n8n.codethio.com/webhook/charmeon \
+curl -X POST "$N8N_WEBHOOK_URL" \
   -H "Content-Type: application/json" \
   -d '{
     "appointment": {

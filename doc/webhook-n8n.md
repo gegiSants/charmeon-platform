@@ -2,8 +2,10 @@
 
 ## Endpoint do Webhook
 ```
-POST https://n8n.codethio.com/webhook/charmeon
+POST ${N8N_WEBHOOK_URL}
 ```
+
+Configure a URL no secret `N8N_WEBHOOK_URL` das Edge Functions do Supabase.
 
 ## Estrutura dos Dados Enviados
 

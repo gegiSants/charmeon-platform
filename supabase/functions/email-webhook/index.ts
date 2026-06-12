@@ -1,12 +1,12 @@
 import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.57.2";
-
-const corsHeaders = {
-  "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
-};
+import { getCorsHeaders } from "../_shared/cors.ts";
+import { requireWebhookSecret } from "../_shared/auth.ts";
+import { verifyConfirmationToken } from "../_shared/tokens.ts";
 
 serve(async (req) => {
+  const corsHeaders = getCorsHeaders(req.headers.get("Origin"));
+
   if (req.method === "OPTIONS") {
     return new Response(null, { headers: corsHeaders });
   }
@@ -128,34 +128,43 @@ serve(async (req) => {
     // Formato de confirmação via link (POST request com body JSON)
     let appointmentId = body.appointmentId;
     let action = body.action;
-
-    console.log('📧 Email webhook chamado:', {
-      method: req.method,
-      bodyAppointmentId: body.appointmentId,
-      bodyAction: body.action,
-      hasBody: !!body
-    });
+    let signedToken = body.token;
 
     // Se não vier no body, tentar GET params
-    if (!appointmentId || !action) {
+    if (!signedToken && (!appointmentId || !action)) {
       const url = new URL(req.url);
-      appointmentId = url.searchParams.get('token') || appointmentId;
+      signedToken = url.searchParams.get('token') || signedToken;
       action = url.searchParams.get('action') || action;
-      console.log('📧 Parâmetros da URL:', {
-        token: url.searchParams.get('token'),
-        action: url.searchParams.get('action'),
-        appointmentId,
-        action
-      });
+    }
+
+    if (signedToken && action) {
+      const verified = await verifyConfirmationToken(signedToken);
+      if (!verified || verified.action !== action) {
+        return new Response(JSON.stringify({
+          success: false,
+          error: "Token inválido ou expirado",
+        }), {
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+          status: 401,
+        });
+      }
+      appointmentId = verified.appointmentId;
+    } else if (appointmentId && action) {
+      const authError = requireWebhookSecret(req);
+      if (authError) return authError;
     }
 
     if (appointmentId && action) {
       const token = appointmentId;
-      console.log('📧 Buscando agendamento:', { token, action });
       
       const { data: appointment, error } = await supabaseClient
         .from('appointments')
-        .select('id, client_name, status, email_confirmation_sent, email_confirmed')
+        .select(`
+          id, client_name, status, email_confirmation_sent, email_confirmed,
+          appointment_date, appointment_time,
+          professionals:professional_id (name, phone),
+          services:service_id (name, price, duration)
+        `)
         .eq('id', token)
         .single();
 
@@ -248,6 +257,7 @@ serve(async (req) => {
             success: true,
             action: 'confirmed',
             appointmentId: appointment.id,
+            appointment,
             message: "Agendamento confirmado com sucesso"
           }), {
             headers: { ...corsHeaders, "Content-Type": "application/json" },
@@ -294,6 +304,7 @@ serve(async (req) => {
             success: true,
             action: 'cancelled',
             appointmentId: appointment.id,
+            appointment,
             message: "Solicitação de reagendamento recebida"
           }), {
             headers: { ...corsHeaders, "Content-Type": "application/json" },

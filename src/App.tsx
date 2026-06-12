@@ -9,6 +9,8 @@ import Payment from "./pages/Payment";
 import PixPayment from "./pages/PixPayment";
 import PaymentSuccess from "./pages/PaymentSuccess";
 import Admin from "./pages/Admin";
+import AdminLogin from "./pages/AdminLogin";
+import AdminAuthGuard from "./components/AdminAuthGuard";
 import ConfirmAppointment from "./pages/ConfirmAppointment";
 import Catalog from "./pages/Catalog";
 import NotFound from "./pages/NotFound";
@@ -27,7 +29,8 @@ const App = () => (
           <Route path="/pagamento" element={<Payment />} />
           <Route path="/pagamento-pix" element={<PixPayment />} />
           <Route path="/pagamento-sucesso" element={<PaymentSuccess />} />
-          <Route path="/admin" element={<Admin />} />
+          <Route path="/admin/login" element={<AdminLogin />} />
+          <Route path="/admin" element={<AdminAuthGuard><Admin /></AdminAuthGuard>} />
           <Route path="/confirmar" element={<ConfirmAppointment />} />
           <Route path="/catalogo" element={<Catalog />} />
           <Route path="*" element={<NotFound />} />

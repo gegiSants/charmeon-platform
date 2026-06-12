@@ -1,12 +1,8 @@
 import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.57.2";
+import { getCorsHeaders } from "../_shared/cors.ts";
 
-const corsHeaders = {
-  "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
-};
-
-const logStep = (step: string, details?: any) => {
+const logStep = (step: string, details?: unknown) => {
   const detailsStr = details ? ` - ${JSON.stringify(details)}` : '';
   console.log(`[VERIFY-PAYMENT-MP] ${step}${detailsStr}`);
 };
@@ -27,6 +23,8 @@ const formatPhoneForWebhook = (phone: string): string => {
 };
 
 serve(async (req) => {
+  const corsHeaders = getCorsHeaders(req.headers.get("Origin"));
+
   if (req.method === "OPTIONS") {
     return new Response(null, { headers: corsHeaders });
   }
@@ -155,9 +153,10 @@ serve(async (req) => {
         // Enviar mensagem via WhatsApp através do webhook do n8n
         if (appointmentData) {
           try {
-            const n8nWebhookUrl = "https://n8n.codethio.com/webhook/charmeon";
-            
-            // Preparar dados para enviar ao n8n
+            const n8nWebhookUrl = Deno.env.get("N8N_WEBHOOK_URL");
+            if (!n8nWebhookUrl) {
+              logStep("N8N_WEBHOOK_URL not configured, skipping WhatsApp notification");
+            } else {
             // O Supabase retorna relacionamentos como objetos únicos (não arrays) quando há foreign key
             const professional = Array.isArray(appointmentData.professionals) 
               ? appointmentData.professionals[0] 
@@ -223,6 +222,7 @@ serve(async (req) => {
                 status: webhookResponse.status,
                 error: errorText 
               });
+            }
             }
           } catch (webhookError) {
             logStep("Exception sending WhatsApp notification", { 

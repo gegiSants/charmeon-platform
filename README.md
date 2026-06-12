@@ -65,6 +65,15 @@ npm run build
 
 Digitalizar e simplificar a gestão de profissionais da beleza, oferecendo uma solução moderna para divulgação de serviços, organização da agenda e recebimento de pagamentos.
 
+## Documentação
+
+Documentação completa em [`doc/`](./doc/README.md):
+
+- [Setup de produção — passo a passo](./doc/setup-producao.md)
+- [Arquitetura (sem SQL)](./doc/arquitetura.md)
+- [Estrutura do projeto](./doc/estrutura.md)
+- [Segurança](./doc/seguranca.md)
+
 ## Site
 
 https://www.charmeon.com.br

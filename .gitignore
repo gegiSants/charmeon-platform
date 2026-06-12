@@ -12,6 +12,21 @@ dist
 dist-ssr
 *.local
 
+# Environment
+.env
+.env.*
+!.env.example
+
+# Secrets & credentials
+*.pem
+*.key
+credentials.json
+.supabase/
+
+# Schema do banco (privado — gerenciado no Supabase Dashboard)
+supabase/migrations/
+supabase/storage_policies.sql
+
 # Bun
 bun.lockb
 

@@ -145,14 +145,11 @@ export const generateTimeSlots = async (date: Date, professionalId: string): Pro
   );
 
   // Buscar agendamentos existentes para esta data e profissional
-  // IMPORTANTE: Só bloquear horários de agendamentos CONFIRMADOS (com pagamento confirmado)
-  // Agendamentos 'pending' NÃO ocupam o horário, pois o cliente pode não pagar
   const { data: existingAppointments, error: appointmentsError } = await supabase
-    .from('appointments')
-    .select('appointment_time, status, service_id')
-    .eq('professional_id', professionalId)
-    .eq('appointment_date', dateStr)
-    .in('status', ['confirmed', 'completed']); // Apenas agendamentos com pagamento confirmado
+    .rpc('get_booked_slots', {
+      p_professional_id: professionalId,
+      p_date: dateStr,
+    });
 
   if (appointmentsError) {
     console.error('Erro ao buscar agendamentos existentes:', appointmentsError);
@@ -241,17 +238,13 @@ export const generateTimeSlots = async (date: Date, professionalId: string): Pro
 
 // Buscar email do cliente por telefone
 export const getClientEmail = async (phone: string): Promise<string | null> => {
-  const { data, error } = await supabase
-    .from('clients')
-    .select('email')
-    .eq('phone', phone)
-    .single();
+  const { data, error } = await supabase.rpc('get_client_email', { p_phone: phone });
 
   if (error || !data) {
     return null;
   }
 
-  return data.email;
+  return data as string;
 };
 
 // Salvar ou atualizar email do cliente
@@ -365,11 +358,10 @@ export const createAppointment = async (data: {
   // IMPORTANTE: Só verificar conflitos com agendamentos CONFIRMADOS (com pagamento confirmado)
   // Agendamentos 'pending' NÃO ocupam o horário
   const { data: existingAppointments, error: appointmentsError } = await supabase
-    .from('appointments')
-    .select('appointment_time, status, service_id')
-    .eq('professional_id', data.professionalId)
-    .eq('appointment_date', dateStr)
-    .in('status', ['confirmed', 'completed']);
+    .rpc('get_booked_slots', {
+      p_professional_id: data.professionalId,
+      p_date: dateStr,
+    });
 
   if (appointmentsError) {
     throw new Error(`Erro ao verificar disponibilidade: ${appointmentsError.message}`);

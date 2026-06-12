@@ -14,7 +14,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Badge } from '@/components/ui/badge';
 import { useProfessionals, useServices } from '@/hooks/useAppointments';
 import { supabase } from '@/integrations/supabase/client';
-import { Plus, Users, Scissors, Calendar, List, Phone, Clock, Trash2, Edit, Loader2, CheckCircle, XCircle, DollarSign, Mail, Ban, Upload, X, Tag, Sparkles, MapPin, Instagram, Shield, CreditCard, FileText, UserCircle } from 'lucide-react';
+import { Plus, Users, Scissors, Calendar, List, Phone, Clock, Trash2, Edit, Loader2, CheckCircle, XCircle, DollarSign, Mail, Ban, Upload, X, Tag, Sparkles, MapPin, Instagram, Shield, CreditCard, FileText, UserCircle, LogOut } from 'lucide-react';
 import { toast } from 'sonner';
 import { format } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
@@ -140,7 +140,7 @@ const Admin = () => {
     
     if (!supabaseUrl || !supabaseKey) {
       setError('Variáveis de ambiente não configuradas. Verifique o arquivo .env.local');
-      console.error('Supabase não configurado:', { supabaseUrl, supabaseKey });
+      console.error('Supabase não configurado. Verifique VITE_SUPABASE_URL e VITE_SUPABASE_PUBLISHABLE_KEY.');
     }
   }, []);
 
@@ -1128,11 +1128,24 @@ const Admin = () => {
       <Header />
 
       <main className="container mx-auto px-4 py-8">
-        <div className="mb-8">
-          <h1 className="font-serif text-2xl md:text-3xl font-semibold text-foreground mb-2">
-            Área Administrativa
-          </h1>
-          <p className="text-muted-foreground">Gerencie profissionais, serviços e agendamentos</p>
+        <div className="mb-8 flex items-start justify-between gap-4">
+          <div>
+            <h1 className="font-serif text-2xl md:text-3xl font-semibold text-foreground mb-2">
+              Área Administrativa
+            </h1>
+            <p className="text-muted-foreground">Gerencie profissionais, serviços e agendamentos</p>
+          </div>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={async () => {
+              await supabase.auth.signOut();
+              window.location.href = '/admin/login';
+            }}
+          >
+            <LogOut className="h-4 w-4 mr-2" />
+            Sair
+          </Button>
         </div>
 
         <Tabs defaultValue="schedule" className="space-y-6">
