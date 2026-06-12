@@ -1,73 +1,70 @@
-# Welcome to your Lovable project
+# CharmeOn
 
-## Project info
+Plataforma para profissionais da beleza divulgarem seus serviços, gerenciarem atendimentos e receberem pagamentos online.
 
-**URL**: https://lovable.dev/projects/REPLACE_WITH_PROJECT_ID
+## Sobre o projeto
 
-## How can I edit this code?
+O CharmeOn foi desenvolvido para conectar profissionais da área da beleza aos seus clientes, oferecendo uma experiência completa de agendamento, gestão de serviços e pagamentos digitais.
 
-There are several ways of editing your application.
+A plataforma permite que cada profissional tenha seu próprio espaço para apresentar trabalhos, gerenciar sua agenda e receber reservas de forma simples e organizada.
 
-**Use Lovable**
+## Funcionalidades
 
-Simply visit the [Lovable Project](https://lovable.dev/projects/REPLACE_WITH_PROJECT_ID) and start prompting.
+### Para clientes
 
-Changes made via Lovable will be committed automatically to this repo.
+* Visualização de serviços disponíveis
+* Galeria de trabalhos realizados
+* Agendamento online
+* Pagamento integrado
+* Navegação responsiva para dispositivos móveis
 
-**Use your preferred IDE**
+### Para profissionais
 
-If you want to work locally using your own IDE, you can clone this repo and push changes. Pushed changes will also be reflected in Lovable.
+* Cadastro e gerenciamento de serviços
+* Upload e gerenciamento de imagens dos trabalhos
+* Controle de agenda e horários disponíveis
+* Gestão de agendamentos
+* Acompanhamento de pagamentos
+* Personalização das informações profissionais
 
-The only requirement is having Node.js & npm installed - [install with nvm](https://github.com/nvm-sh/nvm#installing-and-updating)
+### Pagamentos
 
-Follow these steps:
+* Integração com Mercado Pago
+* Processamento de pagamentos online
+* Confirmação automática das reservas após pagamento
+* Fluxo seguro para clientes e profissionais
 
-```sh
-# Step 1: Clone the repository using the project's Git URL.
-git clone <YOUR_GIT_URL>
+## Tecnologias
 
-# Step 2: Navigate to the project directory.
-cd <YOUR_PROJECT_NAME>
+* React
+* TypeScript
+* Vite
+* Tailwind CSS
+* shadcn/ui
+* Mercado Pago API
 
-# Step 3: Install the necessary dependencies.
-npm i
+## Executando o projeto
 
-# Step 4: Start the development server with auto-reloading and an instant preview.
+```bash
+git clone <URL_DO_REPOSITORIO>
+
+cd charmeon
+
+npm install
+
 npm run dev
 ```
 
-**Edit a file directly in GitHub**
+## Build para produção
 
-- Navigate to the desired file(s).
-- Click the "Edit" button (pencil icon) at the top right of the file view.
-- Make your changes and commit the changes.
+```bash
+npm run build
+```
 
-**Use GitHub Codespaces**
+## Objetivo
 
-- Navigate to the main page of your repository.
-- Click on the "Code" button (green button) near the top right.
-- Select the "Codespaces" tab.
-- Click on "New codespace" to launch a new Codespace environment.
-- Edit files directly within the Codespace and commit and push your changes once you're done.
+Digitalizar e simplificar a gestão de profissionais da beleza, oferecendo uma solução moderna para divulgação de serviços, organização da agenda e recebimento de pagamentos.
 
-## What technologies are used for this project?
+## Site
 
-This project is built with:
-
-- Vite
-- TypeScript
-- React
-- shadcn-ui
-- Tailwind CSS
-
-## How can I deploy this project?
-
-Simply open [Lovable](https://lovable.dev/projects/REPLACE_WITH_PROJECT_ID) and click on Share -> Publish.
-
-## Can I connect a custom domain to my Lovable project?
-
-Yes, you can!
-
-To connect a domain, navigate to Project > Settings > Domains and click Connect Domain.
-
-Read more here: [Setting up a custom domain](https://docs.lovable.dev/features/custom-domain#custom-domain)
+https://www.charmeon.com.br
