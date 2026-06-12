@@ -82,7 +82,7 @@ serve(async (req) => {
       },
       auto_return: "approved",
       notification_url: `${origin}/api/webhook-mp`,
-      statement_descriptor: "Studio Ingrid Leandro",
+      statement_descriptor: "CharmeOn",
       external_reference: appointmentId,
       metadata: {
         appointmentId,

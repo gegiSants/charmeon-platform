@@ -36,10 +36,10 @@ export interface Appointment {
 export const professionals: Professional[] = [
   {
     id: '1',
-    name: 'Ingrid Leandro',
-    specialty: 'Especialista em Cílios e Unhas',
+    name: 'Profissional Exemplo',
+    specialty: 'Especialista em Beleza',
     photo: 'https://images.unsplash.com/photo-1594744803329-e58b31de8bf5?w=400&h=400&fit=crop&crop=face',
-    phone: '(11) 99027-8446',
+    phone: '',
     services: [],
   },
   {

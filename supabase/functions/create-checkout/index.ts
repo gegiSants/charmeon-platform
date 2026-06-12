@@ -180,7 +180,7 @@ serve(async (req) => {
         appointmentDate,
         appointmentTime,
       },
-      statement_descriptor: "STUDIO IL",
+      statement_descriptor: "CharmeOn",
     };
 
     if (clientPhone) {

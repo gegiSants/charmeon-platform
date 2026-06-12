@@ -278,7 +278,6 @@ const Catalog = () => {
               <TabsTrigger value="protocol">Protocolo</TabsTrigger>
               <TabsTrigger value="biosecurity">Biossegurança</TabsTrigger>
               <TabsTrigger value="payment">Pagamento</TabsTrigger>
-              <TabsTrigger value="address">Endereço</TabsTrigger>
             </TabsList>
             
             <TabsContent value="protocol">
@@ -291,10 +290,6 @@ const Catalog = () => {
             
             <TabsContent value="payment">
               <StudioInfo showSections={['payment']} />
-            </TabsContent>
-            
-            <TabsContent value="address">
-              <StudioInfo showSections={['address']} />
             </TabsContent>
           </Tabs>
         </div>

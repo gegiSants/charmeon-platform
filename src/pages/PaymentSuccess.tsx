@@ -125,19 +125,9 @@ const PaymentSuccess = () => {
               </ul>
             </div>
 
-            <div className="flex flex-col sm:flex-row gap-3">
-              <Button onClick={() => navigate('/')} variant="outline" className="flex-1">
-                Voltar ao Início
-              </Button>
-              <a
-                href="https://wa.me/5511990278446"
-                target="_blank"
-                rel="noopener noreferrer"
-                className="flex-1"
-              >
-                <Button className="w-full">Falar no WhatsApp</Button>
-              </a>
-            </div>
+            <Button onClick={() => navigate('/')} className="w-full">
+              Voltar ao início
+            </Button>
           </CardContent>
         </Card>
       </main>

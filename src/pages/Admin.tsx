@@ -251,22 +251,22 @@ const Admin = () => {
         console.error('Error loading studio info:', error);
         // Se não existir, criar objeto vazio com valores padrão
         setStudioInfo({
-          phone: '+55 11 99027-8446',
-          instagram: '@studio_ingridl',
+          phone: '',
+          instagram: '',
           payment_methods: ['PIX', 'Cartão de Crédito', 'Cartão de Débito', 'Dinheiro']
         });
       } else {
         setStudioInfo(data || {
-          phone: '+55 11 99027-8446',
-          instagram: '@studio_ingridl',
+          phone: '',
+          instagram: '',
           payment_methods: ['PIX', 'Cartão de Crédito', 'Cartão de Débito', 'Dinheiro']
         });
       }
     } catch (error) {
       console.error('Error loading studio info:', error);
       setStudioInfo({
-        phone: '+55 11 99027-8446',
-        instagram: '@studio_ingridl',
+        phone: '',
+        instagram: '',
         payment_methods: ['PIX', 'Cartão de Crédito', 'Cartão de Débito', 'Dinheiro']
       });
     } finally {
@@ -2874,7 +2874,7 @@ const Admin = () => {
                             id="studio-phone"
                             value={studioInfo.phone || ''}
                             onChange={(e) => setStudioInfo({ ...studioInfo, phone: e.target.value })}
-                            placeholder="+55 11 99027-8446"
+                            placeholder="+55 11 90000-0000"
                           />
                         </div>
                         <div>
@@ -2883,7 +2883,7 @@ const Admin = () => {
                             id="studio-instagram"
                             value={studioInfo.instagram || ''}
                             onChange={(e) => setStudioInfo({ ...studioInfo, instagram: e.target.value })}
-                            placeholder="@studio_ingridl"
+                            placeholder="@seuinstagram"
                           />
                         </div>
                         <div>
@@ -2930,7 +2930,7 @@ const Admin = () => {
                             id="studio-neighborhood"
                             value={studioInfo.neighborhood || ''}
                             onChange={(e) => setStudioInfo({ ...studioInfo, neighborhood: e.target.value })}
-                            placeholder="Jaraguá - Zona Oeste"
+                            placeholder="Bairro"
                           />
                         </div>
                         <div>

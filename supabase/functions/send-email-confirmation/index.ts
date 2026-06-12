@@ -125,7 +125,7 @@ serve(async (req) => {
 <body>
   <div class="container">
     <div class="header">
-      <h1>Studio Ingrid Leandro</h1>
+      <h1>CharmeOn</h1>
       <p>Confirmação de Agendamento</p>
     </div>
     <div class="content">
@@ -159,7 +159,7 @@ serve(async (req) => {
       </ul>
     </div>
     <div class="footer">
-      <p>Studio Ingrid Leandro - Especialistas em realçar sua beleza natural</p>
+      <p>CharmeOn - Agendamento e gestão para profissionais da beleza</p>
       <p>Este é um email automático, por favor não responda diretamente.</p>
     </div>
   </div>
@@ -169,7 +169,7 @@ serve(async (req) => {
     // Versão texto simples
     const emailText = `Olá ${apt.client_name}!
 
-Este é um lembrete do seu agendamento no Studio Ingrid Leandro:
+Este é um lembrete do seu agendamento no CharmeOn:
 
 📅 Data: ${formattedDate}
 🕐 Horário: ${apt.appointment_time}
@@ -187,12 +187,12 @@ Ou responda este email com:
 
 ⚠️ Importante: Em caso de não comparecimento, o sinal não será ressarcido.
 
-Studio Ingrid Leandro`;
+CharmeOn`;
 
     // Enviar via Resend
     const resendApiKey = Deno.env.get("RESEND_API_KEY");
     const fromEmailRaw = Deno.env.get("FROM_EMAIL");
-    const fromNameRaw = Deno.env.get("FROM_NAME") || "Studio Ingrid Leandro";
+    const fromNameRaw = Deno.env.get("FROM_NAME") || "CharmeOn";
 
     let messageSent = false;
     let messageId = null;

@@ -5,14 +5,10 @@ import { Button } from '@/components/ui/button';
 import { supabase } from '@/integrations/supabase/client';
 import { 
   MapPin, 
-  Phone, 
-  Instagram, 
-  Clock, 
   Shield, 
   CreditCard, 
   FileText,
   Loader2,
-  Sparkles
 } from 'lucide-react';
 
 interface StudioInfo {
@@ -90,15 +86,6 @@ const StudioInfo = ({ showSections = ['all'] }: StudioInfoProps) => {
   const showProtocol = showAll || showSections.includes('protocol');
   const showPayment = showAll || showSections.includes('payment');
   const showAddress = showAll || showSections.includes('address');
-
-  const formatPhone = (phone: string) => {
-    // Formatar telefone brasileiro
-    const cleaned = phone.replace(/\D/g, '');
-    if (cleaned.length === 13) {
-      return `(${cleaned.slice(2, 4)}) ${cleaned.slice(4, 9)}-${cleaned.slice(9)}`;
-    }
-    return phone;
-  };
 
   const fullAddress = [
     info.address,
@@ -237,36 +224,6 @@ const StudioInfo = ({ showSections = ['all'] }: StudioInfoProps) => {
         </Card>
       )}
 
-      {/* Contato */}
-      <Card>
-        <CardHeader>
-          <CardTitle className="font-serif">Contato</CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-3">
-          {info.phone && (
-            <a
-              href={`https://wa.me/${info.phone.replace(/\D/g, '')}`}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="flex items-center gap-3 text-muted-foreground hover:text-primary transition-colors"
-            >
-              <Phone className="h-4 w-4 text-primary" />
-              {formatPhone(info.phone)}
-            </a>
-          )}
-          {info.instagram && (
-            <a
-              href={`https://instagram.com/${info.instagram.replace('@', '')}`}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="flex items-center gap-3 text-muted-foreground hover:text-primary transition-colors"
-            >
-              <Instagram className="h-4 w-4 text-primary" />
-              {info.instagram}
-            </a>
-          )}
-        </CardContent>
-      </Card>
     </div>
   );
 };
