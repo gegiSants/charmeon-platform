@@ -142,6 +142,97 @@ export type Database = {
           },
         ]
       }
+      cash_flow_categories: {
+        Row: {
+          id: string
+          name: string
+          entry_type: string
+          is_system: boolean
+          created_at: string
+        }
+        Insert: {
+          id?: string
+          name: string
+          entry_type?: string
+          is_system?: boolean
+          created_at?: string
+        }
+        Update: {
+          id?: string
+          name?: string
+          entry_type?: string
+          is_system?: boolean
+          created_at?: string
+        }
+        Relationships: []
+      }
+      cash_flow_entries: {
+        Row: {
+          id: string
+          entry_type: string
+          category_id: string
+          amount: number
+          entry_date: string
+          description: string | null
+          professional_id: string | null
+          source: string
+          appointment_id: string | null
+          created_by: string | null
+          created_at: string
+          updated_at: string
+        }
+        Insert: {
+          id?: string
+          entry_type: string
+          category_id: string
+          amount: number
+          entry_date?: string
+          description?: string | null
+          professional_id?: string | null
+          source?: string
+          appointment_id?: string | null
+          created_by?: string | null
+          created_at?: string
+          updated_at?: string
+        }
+        Update: {
+          id?: string
+          entry_type?: string
+          category_id?: string
+          amount?: number
+          entry_date?: string
+          description?: string | null
+          professional_id?: string | null
+          source?: string
+          appointment_id?: string | null
+          created_by?: string | null
+          created_at?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "cash_flow_entries_category_id_fkey"
+            columns: ["category_id"]
+            isOneToOne: false
+            referencedRelation: "cash_flow_categories"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "cash_flow_entries_professional_id_fkey"
+            columns: ["professional_id"]
+            isOneToOne: false
+            referencedRelation: "professionals"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "cash_flow_entries_appointment_id_fkey"
+            columns: ["appointment_id"]
+            isOneToOne: true
+            referencedRelation: "appointments"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
     }
     Views: {
       [_ in never]: never

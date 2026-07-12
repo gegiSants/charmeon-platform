@@ -32,7 +32,7 @@ Plataforma de agendamento e pagamento online para profissionais da beleza.
 | [arquitetura.md](./arquitetura.md) | Diagramas e domínios (sem SQL) |
 | [setup-producao.md](./setup-producao.md) | **Passo a passo para ir ao ar** |
 | [estrutura.md](./estrutura.md) | Mapa de pastas e arquivos |
-| [seguranca.md](./seguranca.md) | Checklist de segurança |
+| [fluxo-caixa.md](./fluxo-caixa.md) | Aba Caixa — fluxo financeiro |
 | [webhook-n8n.md](./webhook-n8n.md) | Integração WhatsApp via n8n |
 | [webhook-n8n-curl.md](./webhook-n8n-curl.md) | Exemplos curl para testar webhook |
 | [telefone-n8n.md](./telefone-n8n.md) | Formato de telefone para o n8n |

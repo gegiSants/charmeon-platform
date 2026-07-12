@@ -14,10 +14,21 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Badge } from '@/components/ui/badge';
 import { useProfessionals, useServices } from '@/hooks/useAppointments';
 import { supabase } from '@/integrations/supabase/client';
-import { Plus, Users, Scissors, Calendar, List, Phone, Clock, Trash2, Edit, Loader2, CheckCircle, XCircle, DollarSign, Mail, Ban, Upload, X, Tag, Sparkles, MapPin, Instagram, Shield, CreditCard, FileText, UserCircle, LogOut } from 'lucide-react';
+import { Plus, Users, Scissors, Calendar, List, Phone, Clock, Trash2, Edit, Loader2, CheckCircle, XCircle, DollarSign, Mail, Ban, Upload, X, Tag, Sparkles, MapPin, Instagram, Shield, CreditCard, FileText, UserCircle, LogOut, Wallet, MessageCircle, TrendingUp } from 'lucide-react';
+import CashFlowTab from '@/components/CashFlowTab';
+import AgendaCalendar from '@/components/AgendaCalendar';
+import AvailabilityRulesSection from '@/components/AvailabilityRulesSection';
 import { toast } from 'sonner';
-import { format } from 'date-fns';
+import { format, startOfMonth, endOfMonth } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
+import {
+  AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
+  AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
+import {
+  Accordion, AccordionContent, AccordionItem, AccordionTrigger,
+} from '@/components/ui/accordion';
+import { formatCountdown, paymentReminderMessage, whatsappUrl, daysSince, normalizePhoneDigits } from '@/lib/leads';
 
 // Função helper para formatar data YYYY-MM-DD para dd/MM/yyyy
 // Evita problemas de timezone ao usar new Date()
@@ -51,25 +62,40 @@ interface Appointment {
   stripe_session_id: string | null;
   stripe_payment_intent_id: string | null;
   created_at: string;
+  lead_expires_at?: string | null;
+  payment_link_url?: string | null;
   email_confirmation_sent?: boolean;
   email_confirmed?: boolean;
   email_confirmed_at?: string | null;
   professionals?: { name: string; phone: string };
-  services?: { name: string; price: number; duration: number };
+  services?: { name: string; price: number; duration: number; sinal_fixo?: number | null };
 }
 
 const Admin = () => {
-  const { professionals, loading: loadingProfessionals } = useProfessionals();
-  const [selectedProfessional, setSelectedProfessional] = useState<string>('all');
+  const { professionals, loading: loadingProfessionals } = useProfessionals({ includeInactive: true });
+  // Filtros isolados por aba (evita vazamento entre Serviços/Agenda/Clientes)
+  const [scheduleProfessionalFilter, setScheduleProfessionalFilter] = useState<string>('all');
+  const [leadsProfessionalFilter, setLeadsProfessionalFilter] = useState<string>('all');
+  const [servicesProfessionalFilter, setServicesProfessionalFilter] = useState<string>('all');
   const [appointments, setAppointments] = useState<Appointment[]>([]);
   const [loadingAppointments, setLoadingAppointments] = useState(false);
   const [services, setServices] = useState<any[]>([]);
   const [loadingServices, setLoadingServices] = useState(false);
   const [categories, setCategories] = useState<any[]>([]);
   const [error, setError] = useState<string | null>(null);
+  const [agendaView, setAgendaView] = useState<'table' | 'calendar'>('table');
+  const [remainingConfirmApt, setRemainingConfirmApt] = useState<Appointment | null>(null);
+  const [savingRemaining, setSavingRemaining] = useState(false);
+  const [clientsSearch, setClientsSearch] = useState('');
+  const [clientsProfessionalFilter, setClientsProfessionalFilter] = useState<string>('all');
+  const [resendingLeadId, setResendingLeadId] = useState<string | null>(null);
+  const [proRevenueRank, setProRevenueRank] = useState<{ id: string; name: string; total: number }[]>([]);
   
   // Estados para formulários
-  const [newProfessional, setNewProfessional] = useState({ name: '', specialty: '', phone: '', photo_url: '', sinal_padrao: '' });
+  const [newProfessional, setNewProfessional] = useState({
+    name: '', specialty: '', phone: '', photo_url: '', sinal_padrao: '',
+    is_active: true, commission_percent: '',
+  });
   const [uploadingPhoto, setUploadingPhoto] = useState(false);
   const [photoPreview, setPhotoPreview] = useState<string | null>(null);
   const [uploadingServicePhoto, setUploadingServicePhoto] = useState(false);
@@ -93,6 +119,10 @@ const Admin = () => {
   const [isServiceDialogOpen, setIsServiceDialogOpen] = useState(false);
   const [serviceFormProfessional, setServiceFormProfessional] = useState<string>('');
   const [sendingEmail, setSendingEmail] = useState<string | null>(null);
+  const [paymentDialogOpen, setPaymentDialogOpen] = useState(false);
+  const [paymentAppointment, setPaymentAppointment] = useState<Appointment | null>(null);
+  const [paymentAmount, setPaymentAmount] = useState('');
+  const [savingPayment, setSavingPayment] = useState(false);
   const [isCategoryDialogOpen, setIsCategoryDialogOpen] = useState(false);
   const [newCategoryName, setNewCategoryName] = useState('');
   
@@ -144,12 +174,11 @@ const Admin = () => {
     }
   }, []);
 
-  // Carregar serviços quando profissional é selecionado
+  // Carregar serviços quando filtro da aba Serviços muda
   useEffect(() => {
-    if (selectedProfessional && selectedProfessional !== 'all') {
-      loadServices(selectedProfessional);
-    }
-  }, [selectedProfessional]);
+    loadServices(servicesProfessionalFilter);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [servicesProfessionalFilter]);
 
   // Carregar serviços para agendamento manual
   const loadServicesForManualAppointment = async (professionalId: string) => {
@@ -324,13 +353,14 @@ const Admin = () => {
     }
   };
 
-  // Carregar agendamentos
+  // Carregar agendamentos (sempre todos — filtros por aba são client-side)
   useEffect(() => {
     if (!error) {
       loadAppointments();
+      loadProRevenueRank();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedProfessional]);
+  }, []);
 
   // Carregar horários disponíveis
   const loadAvailableHours = async () => {
@@ -463,11 +493,16 @@ const Admin = () => {
   const loadServices = async (professionalId: string) => {
     try {
       setLoadingServices(true);
-      const { data, error: queryError } = await supabase
+      let query = supabase
         .from('services')
-        .select('*')
-        .eq('professional_id', professionalId)
+        .select('*, professionals:professional_id (id, name)')
         .order('name');
+
+      if (professionalId && professionalId !== 'all') {
+        query = query.eq('professional_id', professionalId);
+      }
+
+      const { data, error: queryError } = await query;
 
       if (queryError) {
         console.error('Error loading services:', queryError);
@@ -489,22 +524,22 @@ const Admin = () => {
     try {
       setLoadingAppointments(true);
       setError(null);
+
+      try {
+        await supabase.rpc('expire_stale_leads');
+      } catch (e) {
+        console.warn('expire_stale_leads:', e);
+      }
       
-      let query = supabase
+      const { data, error: queryError } = await supabase
         .from('appointments')
         .select(`
           *,
           professionals:professional_id (name, phone),
-          services:service_id (name, price, duration)
+          services:service_id (name, price, duration, sinal_fixo)
         `)
         .order('appointment_date', { ascending: true })
         .order('appointment_time', { ascending: true });
-
-      if (selectedProfessional && selectedProfessional !== 'all') {
-        query = query.eq('professional_id', selectedProfessional);
-      }
-
-      const { data, error: queryError } = await query;
 
       if (queryError) {
         console.error('Error loading appointments:', queryError);
@@ -521,6 +556,33 @@ const Admin = () => {
       setAppointments([]);
     } finally {
       setLoadingAppointments(false);
+    }
+  };
+
+  const loadProRevenueRank = async () => {
+    try {
+      const from = format(startOfMonth(new Date()), 'yyyy-MM-dd');
+      const to = format(endOfMonth(new Date()), 'yyyy-MM-dd');
+      const { data, error } = await supabase
+        .from('cash_flow_entries')
+        .select('professional_id, amount, professionals:professional_id(name)')
+        .eq('entry_type', 'income')
+        .gte('entry_date', from)
+        .lte('entry_date', to);
+
+      if (error) throw error;
+      const map = new Map<string, { id: string; name: string; total: number }>();
+      for (const row of data || []) {
+        const id = row.professional_id || 'none';
+        const name = (row.professionals as { name?: string } | null)?.name || 'Sem profissional';
+        const prev = map.get(id) || { id, name, total: 0 };
+        prev.total += Number(row.amount) || 0;
+        map.set(id, prev);
+      }
+      setProRevenueRank(Array.from(map.values()).sort((a, b) => b.total - a.total));
+    } catch (e) {
+      console.warn('ranking:', e);
+      setProRevenueRank([]);
     }
   };
 
@@ -621,11 +683,14 @@ const Admin = () => {
       specialty: newProfessional.specialty,
       phone: newProfessional.phone,
       photo_url: newProfessional.photo_url.trim() || null,
+      is_active: newProfessional.is_active !== false,
     };
 
-    // Se sinal_padrao foi preenchido, adicionar ao objeto
     if (newProfessional.sinal_padrao && parseFloat(newProfessional.sinal_padrao) > 0) {
       professionalData.sinal_padrao = parseFloat(newProfessional.sinal_padrao);
+    }
+    if (newProfessional.commission_percent !== '' && !Number.isNaN(parseFloat(newProfessional.commission_percent))) {
+      professionalData.commission_percent = parseFloat(newProfessional.commission_percent);
     }
 
     const { error } = await supabase
@@ -637,10 +702,13 @@ const Admin = () => {
       toast.error('Erro ao adicionar profissional');
     } else {
       toast.success(`Profissional "${newProfessional.name}" adicionada!`);
-      setNewProfessional({ name: '', specialty: '', phone: '', photo_url: '', sinal_padrao: '' });
+      setNewProfessional({
+        name: '', specialty: '', phone: '', photo_url: '', sinal_padrao: '',
+        is_active: true, commission_percent: '',
+      });
       setPhotoPreview(null);
       setIsDialogOpen(false);
-      window.location.reload(); // Recarregar para atualizar lista
+      window.location.reload();
     }
   };
 
@@ -652,13 +720,23 @@ const Admin = () => {
       specialty: editingProfessional.specialty,
       phone: editingProfessional.phone,
       photo_url: editingProfessional.photo_url?.trim() || null,
+      is_active: editingProfessional.is_active !== false,
     };
 
-    // Se sinal_padrao foi preenchido, adicionar ao objeto
     if (editingProfessional.sinal_padrao && parseFloat(editingProfessional.sinal_padrao) > 0) {
       professionalData.sinal_padrao = parseFloat(editingProfessional.sinal_padrao);
     } else {
       professionalData.sinal_padrao = null;
+    }
+
+    if (
+      editingProfessional.commission_percent !== '' &&
+      editingProfessional.commission_percent != null &&
+      !Number.isNaN(parseFloat(String(editingProfessional.commission_percent)))
+    ) {
+      professionalData.commission_percent = parseFloat(String(editingProfessional.commission_percent));
+    } else {
+      professionalData.commission_percent = null;
     }
 
     const { error } = await supabase
@@ -694,7 +772,7 @@ const Admin = () => {
   };
 
   const handleAddService = async () => {
-    const professionalId = serviceFormProfessional || (selectedProfessional !== 'all' ? selectedProfessional : '');
+    const professionalId = serviceFormProfessional || (servicesProfessionalFilter !== 'all' ? servicesProfessionalFilter : '');
     
     // Validação mais detalhada
     if (!professionalId) {
@@ -725,6 +803,7 @@ const Admin = () => {
       allow_full_payment: newService.allow_full_payment || false,
       is_featured: newService.is_featured || false,
       display_order: parseInt(newService.display_order) || 0,
+      is_active: true,
     };
 
     // Se sinal_fixo foi preenchido, adicionar ao objeto
@@ -777,9 +856,7 @@ const Admin = () => {
       });
       setServiceFormProfessional('');
       setIsServiceDialogOpen(false);
-      // Atualizar a seleção e recarregar serviços
-      setSelectedProfessional(professionalId);
-      loadServices(professionalId);
+      loadServices(servicesProfessionalFilter);
     }
   };
 
@@ -793,6 +870,7 @@ const Admin = () => {
       allow_full_payment: editingService.allow_full_payment || false,
       is_featured: editingService.is_featured || false,
       display_order: parseInt(editingService.display_order) || 0,
+      is_active: editingService.is_active !== false,
     };
 
     // Se sinal_fixo foi preenchido, adicionar ao objeto
@@ -835,7 +913,7 @@ const Admin = () => {
     } else {
       toast.success('Serviço atualizado!');
       setEditingService(null);
-      loadServices(selectedProfessional);
+      loadServices(servicesProfessionalFilter);
     }
   };
 
@@ -852,7 +930,7 @@ const Admin = () => {
       toast.error('Erro ao excluir serviço');
     } else {
       toast.success('Serviço excluído!');
-      loadServices(selectedProfessional);
+      loadServices(servicesProfessionalFilter);
     }
   };
 
@@ -997,6 +1075,158 @@ const Admin = () => {
     }
   };
 
+  const handleDiscardLead = async (id: string) => {
+    if (!confirm('Descartar este lead? O horário será liberado na agenda.')) return;
+    await handleUpdateAppointmentStatus(id, 'cancelled');
+  };
+
+  const handleResendPaymentWhatsApp = async (lead: Appointment) => {
+    setResendingLeadId(lead.id);
+    try {
+      const service = lead.services;
+      const professional = lead.professionals;
+      const sinalFixo = service?.sinal_fixo;
+      const amount =
+        lead.payment_type === 'sinal'
+          ? (sinalFixo && Number(sinalFixo) > 0
+              ? Number(sinalFixo)
+              : Number(lead.total_amount) * 0.3)
+          : Number(lead.total_amount);
+
+      let paymentUrl = lead.payment_link_url || null;
+
+      const { data, error } = await supabase.functions.invoke('create-payment-mp', {
+        body: {
+          appointmentId: lead.id,
+          clientName: lead.client_name,
+          clientEmail: lead.client_email || undefined,
+          clientPhone: lead.client_phone,
+          serviceName: service?.name || 'Serviço',
+          amount: Math.round(amount * 100) / 100,
+          paymentType: lead.payment_type || 'sinal',
+          professionalName: professional?.name || '',
+          appointmentDate: lead.appointment_date,
+          appointmentTime: lead.appointment_time,
+        },
+      });
+
+      if (!error && data?.initPoint) {
+        paymentUrl = data.initPoint;
+        await supabase
+          .from('appointments')
+          .update({
+            payment_link_url: paymentUrl,
+            mercado_pago_preference_id: data.preferenceId || null,
+          })
+          .eq('id', lead.id);
+      }
+
+      const msg = paymentReminderMessage({
+        clientName: lead.client_name,
+        serviceName: service?.name || 'serviço',
+        date: formatDateString(lead.appointment_date),
+        time: lead.appointment_time,
+        amount,
+        paymentUrl,
+      });
+
+      window.open(whatsappUrl(lead.client_phone, msg), '_blank', 'noopener,noreferrer');
+      toast.success(paymentUrl ? 'WhatsApp aberto com link de pagamento' : 'WhatsApp aberto (gere o PIX se o link falhar)');
+    } catch (err) {
+      console.error(err);
+      toast.error('Erro ao reenviar link de pagamento');
+    } finally {
+      setResendingLeadId(null);
+    }
+  };
+
+  const openPaymentDialog = (apt: Appointment) => {
+    const restante = Math.max(0, Number(apt.total_amount) - Number(apt.amount_paid));
+    setPaymentAppointment(apt);
+    setPaymentAmount(restante > 0 ? restante.toFixed(2) : '');
+    setPaymentDialogOpen(true);
+  };
+
+  const handleMarkRemainingPaid = async () => {
+    if (!remainingConfirmApt) return;
+    const total = Number(remainingConfirmApt.total_amount) || 0;
+    const paid = Number(remainingConfirmApt.amount_paid) || 0;
+    const restante = Math.max(0, total - paid);
+    if (restante <= 0.009) {
+      toast.error('Este agendamento já está totalmente pago');
+      setRemainingConfirmApt(null);
+      return;
+    }
+
+    setSavingRemaining(true);
+    try {
+      const { error } = await supabase
+        .from('appointments')
+        .update({
+          amount_paid: total,
+          status: remainingConfirmApt.status === 'cancelled' ? remainingConfirmApt.status : 'completed',
+        })
+        .eq('id', remainingConfirmApt.id)
+        .lt('amount_paid', total); // idempotência: só atualiza se ainda houver restante
+
+      if (error) throw error;
+
+      toast.success(`Restante de R$ ${restante.toFixed(2)} registrado no Caixa`);
+      setRemainingConfirmApt(null);
+      loadAppointments();
+    } catch (err: unknown) {
+      console.error(err);
+      toast.error(err instanceof Error ? err.message : 'Erro ao marcar restante como pago');
+    } finally {
+      setSavingRemaining(false);
+    }
+  };
+
+  const handleRegisterPayment = async () => {
+    if (!paymentAppointment) return;
+    const value = parseFloat(paymentAmount.replace(',', '.'));
+    if (!value || value <= 0) {
+      toast.error('Informe um valor maior que zero');
+      return;
+    }
+
+    const currentPaid = Number(paymentAppointment.amount_paid) || 0;
+    const total = Number(paymentAppointment.total_amount) || 0;
+    const newPaid = Math.min(currentPaid + value, total > 0 ? total : currentPaid + value);
+    const fullyPaid = total > 0 && newPaid >= total;
+
+    setSavingPayment(true);
+    try {
+      const updatePayload: Record<string, unknown> = { amount_paid: newPaid };
+      if (fullyPaid && paymentAppointment.status !== 'cancelled') {
+        updatePayload.status = 'completed';
+      } else if (newPaid > 0 && paymentAppointment.status === 'pending') {
+        updatePayload.status = 'confirmed';
+      }
+
+      const { error } = await supabase
+        .from('appointments')
+        .update(updatePayload)
+        .eq('id', paymentAppointment.id);
+
+      if (error) throw error;
+
+      toast.success(
+        fullyPaid
+          ? 'Pagamento total registrado! Entrada criada no Caixa.'
+          : 'Pagamento registrado! Entrada criada no Caixa.',
+      );
+      setPaymentDialogOpen(false);
+      setPaymentAppointment(null);
+      loadAppointments();
+    } catch (err: unknown) {
+      console.error(err);
+      toast.error(err instanceof Error ? err.message : 'Erro ao registrar pagamento');
+    } finally {
+      setSavingPayment(false);
+    }
+  };
+
   const handleSendEmail = async (appointmentId: string) => {
     setSendingEmail(appointmentId);
     try {
@@ -1059,19 +1289,73 @@ const Admin = () => {
   const confirmedAppointments = appointments.filter(a => a.status === 'confirmed' || a.status === 'completed');
   const leadAppointments = appointments.filter(a => a.status === 'pending');
   
-  const filteredAppointments = selectedProfessional && selectedProfessional !== 'all'
-    ? confirmedAppointments.filter(a => a.professional_id === selectedProfessional)
+  const filteredAppointments = scheduleProfessionalFilter && scheduleProfessionalFilter !== 'all'
+    ? confirmedAppointments.filter(a => a.professional_id === scheduleProfessionalFilter)
     : confirmedAppointments;
     
-  const filteredLeads = selectedProfessional && selectedProfessional !== 'all'
-    ? leadAppointments.filter(a => a.professional_id === selectedProfessional)
+  const filteredLeads = leadsProfessionalFilter && leadsProfessionalFilter !== 'all'
+    ? leadAppointments.filter(a => a.professional_id === leadsProfessionalFilter)
     : leadAppointments;
 
-  const uniqueClients = Array.from(
-    new Map(
-      appointments.map(apt => [apt.client_phone, { name: apt.client_name, phone: apt.client_phone }])
-    ).values()
-  );
+  // Conversão lead → pago (últimos 30 dias por created_at)
+  const leadsConversion = (() => {
+    const cutoff = Date.now() - 30 * 86400000;
+    const recent = appointments.filter((a) => new Date(a.created_at).getTime() >= cutoff);
+    const startedAsLead = recent.length; // todos começam pending; usamos todos criados
+    const converted = recent.filter((a) => a.status === 'confirmed' || a.status === 'completed').length;
+    const lost = recent.filter((a) => a.status === 'cancelled').length;
+    const pending = recent.filter((a) => a.status === 'pending').length;
+    const rate = startedAsLead > 0 ? Math.round((converted / startedAsLead) * 100) : 0;
+    return { startedAsLead, converted, lost, pending, rate };
+  })();
+
+  const clientStats = (() => {
+    const byPhone = new Map<string, {
+      name: string;
+      phone: string;
+      count: number;
+      ltv: number;
+      lastDate: string;
+      phones: Set<string>;
+    }>();
+
+    for (const apt of appointments) {
+      if (clientsProfessionalFilter !== 'all' && apt.professional_id !== clientsProfessionalFilter) continue;
+      const key = normalizePhoneDigits(apt.client_phone);
+      const prev = byPhone.get(key) || {
+        name: apt.client_name,
+        phone: apt.client_phone,
+        count: 0,
+        ltv: 0,
+        lastDate: apt.appointment_date,
+        phones: new Set<string>(),
+      };
+      prev.count += 1;
+      prev.ltv += Number(apt.amount_paid) || 0;
+      if (apt.appointment_date > prev.lastDate) prev.lastDate = apt.appointment_date;
+      prev.phones.add(apt.client_phone);
+      if (apt.client_name) prev.name = apt.client_name;
+      byPhone.set(key, prev);
+    }
+
+    return Array.from(byPhone.values())
+      .map((c) => ({
+        ...c,
+        daysAway: daysSince(c.lastDate),
+        duplicatePhones: c.phones.size > 1,
+      }))
+      .filter((client) => {
+        if (!clientsSearch.trim()) return true;
+        const q = clientsSearch.trim().toLowerCase();
+        return (
+          client.name.toLowerCase().includes(q) ||
+          client.phone.replace(/\D/g, '').includes(q.replace(/\D/g, ''))
+        );
+      })
+      .sort((a, b) => b.ltv - a.ltv);
+  })();
+
+  const uniqueClients = clientStats;
 
   // Mostrar loading inicial
   if (loadingProfessionals && professionals.length === 0) {
@@ -1191,6 +1475,11 @@ const Admin = () => {
                 <span className="hidden xs:inline">Estúdio</span>
                 <span className="xs:hidden">Est.</span>
               </TabsTrigger>
+              <TabsTrigger value="cashflow" className="gap-1 sm:gap-2 text-xs sm:text-sm whitespace-nowrap">
+                <Wallet className="h-3 w-3 sm:h-4 sm:w-4" />
+                <span className="hidden xs:inline">Caixa</span>
+                <span className="xs:hidden">Cx.</span>
+              </TabsTrigger>
             </TabsList>
           </div>
 
@@ -1200,7 +1489,7 @@ const Admin = () => {
               <CardHeader className="flex flex-row items-center justify-between flex-wrap gap-4">
                 <CardTitle className="font-serif">Agenda</CardTitle>
                 <div className="flex gap-2 flex-wrap">
-                  <Select value={selectedProfessional} onValueChange={setSelectedProfessional}>
+                  <Select value={scheduleProfessionalFilter} onValueChange={setScheduleProfessionalFilter}>
                     <SelectTrigger className="w-[200px]">
                       <SelectValue placeholder="Todas as profissionais" />
                     </SelectTrigger>
@@ -1211,6 +1500,26 @@ const Admin = () => {
                       ))}
                     </SelectContent>
                   </Select>
+                  <div className="flex rounded-md border overflow-hidden">
+                    <Button
+                      type="button"
+                      variant={agendaView === 'table' ? 'default' : 'ghost'}
+                      size="sm"
+                      className="rounded-none"
+                      onClick={() => setAgendaView('table')}
+                    >
+                      Lista
+                    </Button>
+                    <Button
+                      type="button"
+                      variant={agendaView === 'calendar' ? 'default' : 'ghost'}
+                      size="sm"
+                      className="rounded-none"
+                      onClick={() => setAgendaView('calendar')}
+                    >
+                      Calendário
+                    </Button>
+                  </div>
                   <Button onClick={loadAppointments} variant="outline" size="sm">
                     Atualizar
                   </Button>
@@ -1399,6 +1708,12 @@ const Admin = () => {
                   <div className="flex justify-center py-8">
                     <Loader2 className="h-8 w-8 animate-spin text-primary" />
                   </div>
+                ) : agendaView === 'calendar' ? (
+                  <AgendaCalendar
+                    appointments={filteredAppointments}
+                    professionals={professionals}
+                    onRefresh={loadAppointments}
+                  />
                 ) : (
                   <div className="overflow-x-auto -mx-4 px-4 sm:mx-0 sm:px-0">
                     <Table>
@@ -1469,7 +1784,12 @@ const Admin = () => {
                                       </div>
                                     )}
                                     <div className="text-xs text-muted-foreground mt-1">
-                                      {apt.payment_type === 'sinal' ? 'Sinal (PIX)' : 'Total (Cartão)'}
+                                      {apt.payment_type === 'sinal' ? 'Sinal (PIX)' : 'Total'}
+                                    {(Number(apt.total_amount) - Number(apt.amount_paid)) > 0.009 && apt.payment_type !== 'sinal' && (
+                                      <div className="text-xs text-orange-600">
+                                        Restante: R$ {(Number(apt.total_amount) - Number(apt.amount_paid)).toFixed(2)}
+                                      </div>
+                                    )}
                                     </div>
                                   </div>
                                 </TableCell>
@@ -1506,20 +1826,29 @@ const Admin = () => {
                                         <SelectItem value="cancelled">Cancelado</SelectItem>
                                       </SelectContent>
                                     </Select>
-                                    <Button
-                                      variant="outline"
-                                      size="icon"
-                                      className="h-8 w-8 sm:h-10 sm:w-10"
-                                      onClick={() => handleSendEmail(apt.id)}
-                                      disabled={sendingEmail === apt.id}
-                                      title="Enviar email de confirmação"
-                                    >
-                                      {sendingEmail === apt.id ? (
-                                        <Loader2 className="h-3 w-3 sm:h-4 sm:w-4 animate-spin" />
-                                      ) : (
-                                        <Mail className="h-3 w-3 sm:h-4 sm:w-4" />
-                                      )}
-                                    </Button>
+                                    {restante > 0.009 && (
+                                      <>
+                                        <Button
+                                          variant="default"
+                                          size="sm"
+                                          className="text-xs gap-1"
+                                          onClick={() => setRemainingConfirmApt(apt)}
+                                          title="Marcar restante como pago"
+                                        >
+                                          <DollarSign className="h-3 w-3" />
+                                          Marcar restante pago
+                                        </Button>
+                                        <Button
+                                          variant="outline"
+                                          size="sm"
+                                          className="text-xs gap-1"
+                                          onClick={() => openPaymentDialog(apt)}
+                                          title="Registrar pagamento parcial"
+                                        >
+                                          Pagar parcial
+                                        </Button>
+                                      </>
+                                    )}
                                   </div>
                                 </TableCell>
                               </TableRow>
@@ -1537,23 +1866,49 @@ const Admin = () => {
           {/* Tab: Leads */}
           <TabsContent value="leads">
             <Card>
-              <CardHeader className="flex flex-row items-center justify-between flex-wrap gap-4">
-                <CardTitle className="font-serif">Leads (Clientes que não pagaram)</CardTitle>
-                <div className="flex gap-2 flex-wrap">
-                  <Select value={selectedProfessional} onValueChange={setSelectedProfessional}>
-                    <SelectTrigger className="w-[200px]">
-                      <SelectValue placeholder="Todas as profissionais" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="all">Todas as profissionais</SelectItem>
-                      {professionals.map((pro) => (
-                        <SelectItem key={pro.id} value={pro.id}>{pro.name}</SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                  <Button onClick={loadAppointments} variant="outline" size="sm">
-                    Atualizar
-                  </Button>
+              <CardHeader className="flex flex-col gap-4">
+                <div className="flex flex-row items-center justify-between flex-wrap gap-4">
+                  <div>
+                    <CardTitle className="font-serif">Leads (Clientes que não pagaram)</CardTitle>
+                    <p className="text-xs text-muted-foreground mt-1">
+                      Leads sem pagamento expiram automaticamente (prazo em Informações do Estúdio) e liberam o horário.
+                    </p>
+                  </div>
+                  <div className="flex gap-2 flex-wrap">
+                    <Select value={leadsProfessionalFilter} onValueChange={setLeadsProfessionalFilter}>
+                      <SelectTrigger className="w-[200px]">
+                        <SelectValue placeholder="Todas as profissionais" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="all">Todas as profissionais</SelectItem>
+                        {professionals.map((pro) => (
+                          <SelectItem key={pro.id} value={pro.id}>{pro.name}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <Button onClick={loadAppointments} variant="outline" size="sm">
+                      Atualizar
+                    </Button>
+                  </div>
+                </div>
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                  <div className="rounded-lg border bg-muted/30 p-3">
+                    <p className="text-xs text-muted-foreground">Conversão (30 dias)</p>
+                    <p className="text-2xl font-semibold text-emerald-600">{leadsConversion.rate}%</p>
+                    <p className="text-[11px] text-muted-foreground">lead → pago/confirmado</p>
+                  </div>
+                  <div className="rounded-lg border bg-muted/30 p-3">
+                    <p className="text-xs text-muted-foreground">Convertidos</p>
+                    <p className="text-2xl font-semibold">{leadsConversion.converted}</p>
+                  </div>
+                  <div className="rounded-lg border bg-muted/30 p-3">
+                    <p className="text-xs text-muted-foreground">Perdidos / cancelados</p>
+                    <p className="text-2xl font-semibold text-rose-600">{leadsConversion.lost}</p>
+                  </div>
+                  <div className="rounded-lg border bg-muted/30 p-3">
+                    <p className="text-xs text-muted-foreground">Aguardando agora</p>
+                    <p className="text-2xl font-semibold text-amber-600">{leadsConversion.pending}</p>
+                  </div>
                 </div>
               </CardHeader>
               <CardContent>
@@ -1571,7 +1926,7 @@ const Admin = () => {
                           <TableHead className="text-xs sm:text-sm">Cliente</TableHead>
                           <TableHead className="text-xs sm:text-sm hidden sm:table-cell">Serviço</TableHead>
                           <TableHead className="text-xs sm:text-sm hidden md:table-cell">Valor</TableHead>
-                          <TableHead className="text-xs sm:text-sm">Criado em</TableHead>
+                          <TableHead className="text-xs sm:text-sm">Expira em</TableHead>
                           <TableHead className="text-xs sm:text-sm">Ações</TableHead>
                         </TableRow>
                       </TableHeader>
@@ -1597,7 +1952,7 @@ const Admin = () => {
                                   <div>
                                     <p className="font-medium text-xs sm:text-sm">{lead.client_name}</p>
                                     <a
-                                      href={`https://wa.me/55${lead.client_phone.replace(/\D/g, '')}`}
+                                      href={whatsappUrl(lead.client_phone)}
                                       target="_blank"
                                       rel="noopener noreferrer"
                                       className="text-xs text-primary hover:underline flex items-center gap-1"
@@ -1626,11 +1981,41 @@ const Admin = () => {
                                     </div>
                                   </div>
                                 </TableCell>
-                                <TableCell className="text-xs sm:text-sm text-muted-foreground">
-                                  {format(new Date(lead.created_at), "dd/MM/yyyy HH:mm", { locale: ptBR })}
+                                <TableCell className="text-xs sm:text-sm">
+                                  <span className={
+                                    lead.lead_expires_at && new Date(lead.lead_expires_at).getTime() < Date.now()
+                                      ? 'text-rose-600'
+                                      : 'text-amber-700'
+                                  }>
+                                    {formatCountdown(lead.lead_expires_at)}
+                                  </span>
+                                  <div className="text-[10px] text-muted-foreground">
+                                    criado {format(new Date(lead.created_at), "dd/MM HH:mm", { locale: ptBR })}
+                                  </div>
                                 </TableCell>
                                 <TableCell>
-                                  <div className="flex flex-col sm:flex-row gap-2 items-start sm:items-center">
+                                  <div className="flex flex-col gap-2">
+                                    <Button
+                                      size="sm"
+                                      variant="default"
+                                      className="text-xs gap-1"
+                                      disabled={resendingLeadId === lead.id}
+                                      onClick={() => handleResendPaymentWhatsApp(lead)}
+                                    >
+                                      {resendingLeadId === lead.id
+                                        ? <Loader2 className="h-3 w-3 animate-spin" />
+                                        : <MessageCircle className="h-3 w-3" />}
+                                      Reenviar pagamento
+                                    </Button>
+                                    <Button
+                                      size="sm"
+                                      variant="outline"
+                                      className="text-xs gap-1 text-destructive"
+                                      onClick={() => handleDiscardLead(lead.id)}
+                                    >
+                                      <Ban className="h-3 w-3" />
+                                      Descartar
+                                    </Button>
                                     <Select
                                       value={lead.status}
                                       onValueChange={(value) => handleUpdateAppointmentStatus(lead.id, value)}
@@ -1640,24 +2025,11 @@ const Admin = () => {
                                       </SelectTrigger>
                                       <SelectContent>
                                         <SelectItem value="pending">Pendente</SelectItem>
-                                        <SelectItem value="confirmed">Confirmar</SelectItem>
-                                        <SelectItem value="cancelled">Cancelar</SelectItem>
+                                        <SelectItem value="confirmed">Confirmado</SelectItem>
+                                        <SelectItem value="completed">Concluído</SelectItem>
+                                        <SelectItem value="cancelled">Cancelado</SelectItem>
                                       </SelectContent>
                                     </Select>
-                                    <Button
-                                      variant="outline"
-                                      size="icon"
-                                      className="h-8 w-8 sm:h-10 sm:w-10"
-                                      onClick={() => handleSendEmail(lead.id)}
-                                      disabled={sendingEmail === lead.id}
-                                      title="Enviar email de confirmação"
-                                    >
-                                      {sendingEmail === lead.id ? (
-                                        <Loader2 className="h-3 w-3 sm:h-4 sm:w-4 animate-spin" />
-                                      ) : (
-                                        <Mail className="h-3 w-3 sm:h-4 sm:w-4" />
-                                      )}
-                                    </Button>
                                   </div>
                                 </TableCell>
                               </TableRow>
@@ -1745,8 +2117,50 @@ const Admin = () => {
                           placeholder="Ex: 50.00"
                         />
                         <p className="text-xs text-muted-foreground mt-1">
-                          Valor fixo de sinal para todos os serviços desta profissional. Se não preenchido, usa 30% do valor de cada serviço.
+                          Valor fixo de sinal para todos os serviços desta profissional. Se não preenchido, usa 30% do valor de cada serviço (ou o sinal_fixo do serviço).
                         </p>
+                      </div>
+                      <div>
+                        <Label htmlFor="pro-commission">Comissão (%)</Label>
+                        <Input
+                          id="pro-commission"
+                          type="number"
+                          step="0.01"
+                          min="0"
+                          max="100"
+                          value={
+                            editingProfessional
+                              ? (editingProfessional.commission_percent ?? '')
+                              : newProfessional.commission_percent
+                          }
+                          onChange={(e) =>
+                            editingProfessional
+                              ? setEditingProfessional({ ...editingProfessional, commission_percent: e.target.value })
+                              : setNewProfessional({ ...newProfessional, commission_percent: e.target.value })
+                          }
+                          placeholder="Ex: 40"
+                        />
+                        <p className="text-xs text-muted-foreground mt-1">
+                          Percentual sobre as entradas do Caixa desta profissional (referência para fechar comissão).
+                        </p>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <Checkbox
+                          id="pro-active"
+                          checked={
+                            editingProfessional
+                              ? editingProfessional.is_active !== false
+                              : newProfessional.is_active
+                          }
+                          onCheckedChange={(checked) =>
+                            editingProfessional
+                              ? setEditingProfessional({ ...editingProfessional, is_active: !!checked })
+                              : setNewProfessional({ ...newProfessional, is_active: !!checked })
+                          }
+                        />
+                        <Label htmlFor="pro-active" className="cursor-pointer">
+                          Profissional ativa (aparece no agendamento público)
+                        </Label>
                       </div>
                       <div>
                         <Label htmlFor="pro-photo">Foto da Profissional (opcional)</Label>
@@ -1855,7 +2269,10 @@ const Admin = () => {
                             onClick={() => {
                               setIsDialogOpen(false);
                               setEditingProfessional(null);
-                              setNewProfessional({ name: '', specialty: '', phone: '', photo_url: '', sinal_padrao: '' });
+                              setNewProfessional({
+                                name: '', specialty: '', phone: '', photo_url: '', sinal_padrao: '',
+                                is_active: true, commission_percent: '',
+                              });
                               setPhotoPreview(null);
                             }}
                         >
@@ -1872,6 +2289,27 @@ const Admin = () => {
                 </Dialog>
               </CardHeader>
               <CardContent>
+                {proRevenueRank.length > 0 && (
+                  <div className="mb-6 rounded-lg border bg-muted/20 p-4">
+                    <div className="flex items-center gap-2 mb-3">
+                      <TrendingUp className="h-4 w-4 text-primary" />
+                      <h4 className="font-medium text-sm">Ranking de faturamento no mês (Caixa)</h4>
+                    </div>
+                    <div className="space-y-2">
+                      {proRevenueRank.slice(0, 5).map((row, i) => (
+                        <div key={row.id} className="flex items-center justify-between text-sm">
+                          <span>
+                            <span className="text-muted-foreground mr-2">#{i + 1}</span>
+                            {row.name}
+                          </span>
+                          <span className="font-medium text-emerald-600">
+                            R$ {row.total.toFixed(2)}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
                 {loadingProfessionals ? (
                   <div className="flex justify-center py-8">
                     <Loader2 className="h-8 w-8 animate-spin text-primary" />
@@ -1900,15 +2338,43 @@ const Admin = () => {
                           </div>
                         )}
                         <div>
-                          <h4 className="font-medium">{pro.name}</h4>
+                          <div className="flex items-center gap-2">
+                            <h4 className="font-medium">{pro.name}</h4>
+                            <Badge variant="outline" className={pro.is_active === false ? 'bg-muted' : 'bg-emerald-50 text-emerald-700'}>
+                              {pro.is_active === false ? 'Inativa' : 'Ativa'}
+                            </Badge>
+                          </div>
                           <p className="text-sm text-muted-foreground">{pro.specialty}</p>
                           <p className="text-xs text-muted-foreground flex items-center gap-1">
                             <Phone className="h-3 w-3" />
                             {pro.phone}
                           </p>
+                          {pro.commission_percent != null && (
+                            <p className="text-xs text-muted-foreground">
+                              Comissão: {Number(pro.commission_percent).toFixed(0)}%
+                            </p>
+                          )}
                         </div>
                       </div>
                       <div className="flex gap-2">
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={async () => {
+                              const next = !(pro.is_active !== false);
+                              const { error } = await supabase
+                                .from('professionals')
+                                .update({ is_active: next })
+                                .eq('id', pro.id);
+                              if (error) toast.error('Erro ao atualizar status');
+                              else {
+                                toast.success(next ? 'Profissional ativada' : 'Profissional desativada');
+                                window.location.reload();
+                              }
+                            }}
+                          >
+                            {pro.is_active === false ? 'Ativar' : 'Desativar'}
+                          </Button>
                           <Button
                             variant="outline"
                             size="icon"
@@ -1944,17 +2410,14 @@ const Admin = () => {
                 <CardTitle className="font-serif">Serviços</CardTitle>
                 <div className="flex gap-2 flex-wrap">
                   <Select 
-                    value={selectedProfessional && selectedProfessional !== 'all' ? selectedProfessional : undefined} 
-                    onValueChange={(value) => {
-                      if (value) {
-                        setSelectedProfessional(value);
-                      }
-                    }}
+                    value={servicesProfessionalFilter}
+                    onValueChange={setServicesProfessionalFilter}
                   >
-                    <SelectTrigger className="w-[180px]">
-                      <SelectValue placeholder="Selecione uma profissional" />
+                    <SelectTrigger className="w-[200px]">
+                      <SelectValue placeholder="Todas as profissionais" />
                     </SelectTrigger>
                     <SelectContent>
+                      <SelectItem value="all">Todas as profissionais</SelectItem>
                       {professionals.length > 0 ? (
                         professionals.map((pro) => (
                         <SelectItem key={pro.id} value={pro.id}>{pro.name}</SelectItem>
@@ -2056,6 +2519,42 @@ const Admin = () => {
                           <p className="text-xs text-muted-foreground mt-1">
                             Se preenchido, este será o valor do sinal para este serviço. Caso contrário, usa o padrão da profissional ou 30% do valor total.
                           </p>
+                        </div>
+                        <div className="flex items-center gap-2 md:col-span-2">
+                          <Checkbox
+                            id="service-allow-full"
+                            checked={
+                              editingService
+                                ? !!editingService.allow_full_payment
+                                : newService.allow_full_payment
+                            }
+                            onCheckedChange={(checked) =>
+                              editingService
+                                ? setEditingService({ ...editingService, allow_full_payment: !!checked })
+                                : setNewService({ ...newService, allow_full_payment: !!checked })
+                            }
+                          />
+                          <Label htmlFor="service-allow-full" className="cursor-pointer">
+                            Permitir pagamento total (além do sinal)
+                          </Label>
+                        </div>
+                        <div className="flex items-center gap-2 md:col-span-2">
+                          <Checkbox
+                            id="service-active"
+                            checked={
+                              editingService
+                                ? editingService.is_active !== false
+                                : true
+                            }
+                            onCheckedChange={(checked) =>
+                              editingService
+                                ? setEditingService({ ...editingService, is_active: !!checked })
+                                : setNewService({ ...newService, is_active: !!checked } as typeof newService)
+                            }
+                          />
+                          <Label htmlFor="service-active" className="cursor-pointer">
+                            Serviço ativo (aparece no catálogo / agendamento)
+                          </Label>
                         </div>
                         <div className="md:col-span-2">
                           <Label htmlFor="service-photo">Foto do Serviço (opcional)</Label>
@@ -2332,22 +2831,41 @@ const Admin = () => {
                   <TableHeader>
                     <TableRow>
                       <TableHead>Serviço</TableHead>
+                      {servicesProfessionalFilter === 'all' && (
+                        <TableHead>Profissional</TableHead>
+                      )}
                       <TableHead>Duração</TableHead>
                       <TableHead>Valor</TableHead>
+                      <TableHead>Status</TableHead>
                       <TableHead className="text-right">Ações</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
                       {services.length === 0 ? (
                         <TableRow>
-                          <TableCell colSpan={4} className="text-center py-8 text-muted-foreground">
-                            {selectedProfessional && selectedProfessional !== 'all' ? 'Nenhum serviço encontrado' : 'Selecione uma profissional'}
+                          <TableCell
+                            colSpan={servicesProfessionalFilter === 'all' ? 6 : 5}
+                            className="text-center py-8 text-muted-foreground"
+                          >
+                            Nenhum serviço encontrado
                           </TableCell>
                         </TableRow>
                       ) : (
                         services.map((service) => (
-                      <TableRow key={service.id}>
-                        <TableCell className="font-medium">{service.name}</TableCell>
+                      <TableRow key={service.id} className={service.is_active === false ? 'opacity-60' : ''}>
+                        <TableCell className="font-medium">
+                          {service.name}
+                          {service.sinal_fixo != null && Number(service.sinal_fixo) > 0 && (
+                            <div className="text-[11px] text-muted-foreground">
+                              Sinal: R$ {Number(service.sinal_fixo).toFixed(2)}
+                            </div>
+                          )}
+                        </TableCell>
+                        {servicesProfessionalFilter === 'all' && (
+                          <TableCell className="text-sm text-muted-foreground">
+                            {service.professionals?.name || '—'}
+                          </TableCell>
+                        )}
                         <TableCell>
                           <span className="flex items-center gap-1">
                             <Clock className="h-3 w-3" />
@@ -2355,8 +2873,31 @@ const Admin = () => {
                           </span>
                         </TableCell>
                             <TableCell>R$ {Number(service.price).toFixed(2)}</TableCell>
+                        <TableCell>
+                          <Badge variant="outline" className={service.is_active === false ? '' : 'bg-emerald-50 text-emerald-700'}>
+                            {service.is_active === false ? 'Inativo' : 'Ativo'}
+                          </Badge>
+                        </TableCell>
                         <TableCell className="text-right">
                           <div className="flex justify-end gap-2">
+                                <Button
+                                  variant="outline"
+                                  size="sm"
+                                  onClick={async () => {
+                                    const next = !(service.is_active !== false);
+                                    const { error } = await supabase
+                                      .from('services')
+                                      .update({ is_active: next })
+                                      .eq('id', service.id);
+                                    if (error) toast.error('Erro ao atualizar status');
+                                    else {
+                                      toast.success(next ? 'Serviço ativado' : 'Serviço desativado');
+                                      loadServices(servicesProfessionalFilter);
+                                    }
+                                  }}
+                                >
+                                  {service.is_active === false ? 'Ativar' : 'Desativar'}
+                                </Button>
                                 <Button
                                   variant="outline"
                                   size="icon"
@@ -2397,9 +2938,19 @@ const Admin = () => {
           {/* Tab: Clientes */}
           {/* Tab: Horários */}
           <TabsContent value="hours">
+            <AvailabilityRulesSection
+              professionals={professionals}
+              professionalFilter={hoursProfessionalFilter}
+            />
             <Card>
               <CardHeader className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
-                <CardTitle className="font-serif text-lg sm:text-xl">Gerenciar Horários Disponíveis</CardTitle>
+                <div>
+                  <CardTitle className="font-serif text-lg sm:text-xl">Exceções pontuais (horários avulsos)</CardTitle>
+                  <p className="text-xs text-muted-foreground mt-1 max-w-xl">
+                    Prefira as <strong>regras recorrentes</strong> acima. Aqui só cadastre um horário extra específico.
+                    A aba <strong>Bloqueios</strong> é o oposto: tira um dia/horário da grade (férias, folga, imprevisto).
+                  </p>
+                </div>
                 <div className="flex flex-col sm:flex-row gap-2 w-full sm:w-auto">
                   <Select value={hoursProfessionalFilter} onValueChange={setHoursProfessionalFilter}>
                     <SelectTrigger className="w-full sm:w-[200px] text-xs sm:text-sm">
@@ -2611,7 +3162,13 @@ const Admin = () => {
           <TabsContent value="blocked">
             <Card>
               <CardHeader className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
-                <CardTitle className="font-serif text-lg sm:text-xl">Gerenciar Bloqueios de Agenda</CardTitle>
+                <div>
+                  <CardTitle className="font-serif text-lg sm:text-xl">Gerenciar Bloqueios de Agenda</CardTitle>
+                  <p className="text-xs text-muted-foreground mt-1 max-w-xl">
+                    Use para <strong>tirar</strong> disponibilidade pontual (férias, folga, imprevisto).
+                    Em Horários você define quando a profissional atende; aqui você bloqueia exceções.
+                  </p>
+                </div>
                 <div className="flex flex-col sm:flex-row gap-2 w-full sm:w-auto">
                   <Select value={blockedProfessionalFilter} onValueChange={setBlockedProfessionalFilter}>
                     <SelectTrigger className="w-full sm:w-[200px] text-xs sm:text-sm">
@@ -2794,8 +3351,27 @@ const Admin = () => {
 
           <TabsContent value="clients">
             <Card>
-              <CardHeader>
+              <CardHeader className="flex flex-row items-center justify-between flex-wrap gap-4">
                 <CardTitle className="font-serif">Lista de Clientes</CardTitle>
+                <div className="flex gap-2 flex-wrap">
+                  <Input
+                    className="w-[200px]"
+                    placeholder="Buscar nome ou telefone"
+                    value={clientsSearch}
+                    onChange={(e) => setClientsSearch(e.target.value)}
+                  />
+                  <Select value={clientsProfessionalFilter} onValueChange={setClientsProfessionalFilter}>
+                    <SelectTrigger className="w-[200px]">
+                      <SelectValue placeholder="Todas as profissionais" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">Todas as profissionais</SelectItem>
+                      {professionals.map((pro) => (
+                        <SelectItem key={pro.id} value={pro.id}>{pro.name}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
               </CardHeader>
               <CardContent>
                 <div className="overflow-x-auto -mx-4 px-4 sm:mx-0 sm:px-0">
@@ -2804,27 +3380,34 @@ const Admin = () => {
                       <TableRow>
                         <TableHead className="text-xs sm:text-sm">Nome</TableHead>
                         <TableHead className="text-xs sm:text-sm">Telefone</TableHead>
-                        <TableHead className="text-xs sm:text-sm">Total de Agendamentos</TableHead>
+                        <TableHead className="text-xs sm:text-sm">Agendamentos</TableHead>
+                        <TableHead className="text-xs sm:text-sm">LTV (pago)</TableHead>
+                        <TableHead className="text-xs sm:text-sm">Última visita</TableHead>
+                        <TableHead className="text-xs sm:text-sm">Ações</TableHead>
                       </TableRow>
                     </TableHeader>
                   <TableBody>
                     {uniqueClients.length === 0 ? (
                       <TableRow>
-                        <TableCell colSpan={3} className="text-center py-8 text-muted-foreground">
+                        <TableCell colSpan={6} className="text-center py-8 text-muted-foreground">
                           Nenhum cliente encontrado
                         </TableCell>
                       </TableRow>
                     ) : (
                       uniqueClients.map((client, index) => {
-                        const clientAppointments = appointments.filter(
-                          apt => apt.client_phone === client.phone
-                        );
                       return (
                           <TableRow key={index}>
-                            <TableCell className="font-medium text-xs sm:text-sm">{client.name}</TableCell>
+                            <TableCell className="font-medium text-xs sm:text-sm">
+                              {client.name}
+                              {client.duplicatePhones && (
+                                <Badge variant="outline" className="ml-2 text-[10px] text-amber-700">
+                                  telefones variantes
+                                </Badge>
+                              )}
+                            </TableCell>
                           <TableCell className="text-xs sm:text-sm">
                             <a
-                                href={`https://wa.me/55${client.phone.replace(/\D/g, '')}`}
+                                href={whatsappUrl(client.phone)}
                               target="_blank"
                               rel="noopener noreferrer"
                               className="text-primary hover:underline flex items-center gap-1"
@@ -2833,7 +3416,34 @@ const Admin = () => {
                                 {client.phone}
                             </a>
                           </TableCell>
-                            <TableCell className="text-xs sm:text-sm">{clientAppointments.length}</TableCell>
+                            <TableCell className="text-xs sm:text-sm">{client.count}</TableCell>
+                            <TableCell className="text-xs sm:text-sm font-medium text-emerald-600">
+                              R$ {client.ltv.toFixed(2)}
+                            </TableCell>
+                            <TableCell className="text-xs sm:text-sm">
+                              {formatDateString(client.lastDate)}
+                              {client.daysAway != null && client.daysAway >= 30 && (
+                                <div className="text-[11px] text-amber-700">
+                                  Não volta há {client.daysAway} dias
+                                </div>
+                              )}
+                            </TableCell>
+                            <TableCell>
+                              {client.daysAway != null && client.daysAway >= 30 && (
+                                <Button
+                                  size="sm"
+                                  variant="outline"
+                                  className="text-xs gap-1"
+                                  onClick={() => {
+                                    const msg = `Olá, ${client.name}! Sentimos sua falta no salão 💛 Já faz um tempo desde sua última visita. Quer agendar um horário?`;
+                                    window.open(whatsappUrl(client.phone, msg), '_blank', 'noopener,noreferrer');
+                                  }}
+                                >
+                                  <MessageCircle className="h-3 w-3" />
+                                  Retorno
+                                </Button>
+                              )}
+                            </TableCell>
                         </TableRow>
                       );
                       })
@@ -2846,6 +3456,10 @@ const Admin = () => {
           </TabsContent>
 
           {/* Tab: Informações do Estúdio */}
+          <TabsContent value="cashflow">
+            <CashFlowTab />
+          </TabsContent>
+
           <TabsContent value="studio">
             <Card>
               <CardHeader>
@@ -2860,14 +3474,15 @@ const Admin = () => {
                     <Loader2 className="h-8 w-8 animate-spin text-primary" />
                   </div>
                 ) : studioInfo ? (
-                  <div className="space-y-6 max-w-4xl">
-                    {/* Contato */}
+                  <div className="grid grid-cols-1 xl:grid-cols-2 gap-6 max-w-6xl">
                     <div className="space-y-4">
-                      <h3 className="font-semibold text-lg flex items-center gap-2">
-                        <Phone className="h-5 w-5 text-primary" />
-                        Contato
-                      </h3>
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <Accordion type="multiple" defaultValue={['contato', 'leads']} className="w-full">
+                      <AccordionItem value="contato">
+                        <AccordionTrigger className="font-semibold">
+                          <span className="flex items-center gap-2"><Phone className="h-4 w-4 text-primary" /> Contato</span>
+                        </AccordionTrigger>
+                        <AccordionContent>
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-2">
                         <div>
                           <Label htmlFor="studio-phone">Telefone *</Label>
                           <Input
@@ -2897,14 +3512,60 @@ const Admin = () => {
                           />
                         </div>
                       </div>
-                    </div>
+                        </AccordionContent>
+                      </AccordionItem>
 
+                      <AccordionItem value="leads">
+                        <AccordionTrigger className="font-semibold">
+                          <span className="flex items-center gap-2"><Clock className="h-4 w-4 text-primary" /> Leads e atraso</span>
+                        </AccordionTrigger>
+                        <AccordionContent>
+                          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-2">
+                            <div>
+                              <Label htmlFor="lead-expiry">Expiração de lead (minutos)</Label>
+                              <Input
+                                id="lead-expiry"
+                                type="number"
+                                min={5}
+                                max={10080}
+                                value={studioInfo.lead_expiry_minutes ?? 60}
+                                onChange={(e) => setStudioInfo({
+                                  ...studioInfo,
+                                  lead_expiry_minutes: parseInt(e.target.value, 10) || 60,
+                                })}
+                              />
+                              <p className="text-xs text-muted-foreground mt-1">
+                                Após esse prazo sem pagamento, o lead é cancelado e o horário libera.
+                              </p>
+                            </div>
+                            <div>
+                              <Label htmlFor="late-tolerance">Tolerância de atraso (minutos)</Label>
+                              <Input
+                                id="late-tolerance"
+                                type="number"
+                                min={0}
+                                max={120}
+                                value={studioInfo.late_tolerance_minutes ?? 15}
+                                onChange={(e) => setStudioInfo({
+                                  ...studioInfo,
+                                  late_tolerance_minutes: parseInt(e.target.value, 10) || 0,
+                                })}
+                              />
+                              <p className="text-xs text-muted-foreground mt-1">
+                                Valor numérico exibido nas políticas (base para regras futuras no sistema).
+                              </p>
+                            </div>
+                          </div>
+                        </AccordionContent>
+                      </AccordionItem>
+
+                      <AccordionItem value="endereco">
+                        <AccordionTrigger className="font-semibold">
+                          <span className="flex items-center gap-2"><MapPin className="h-4 w-4 text-primary" /> Endereço</span>
+                        </AccordionTrigger>
+                        <AccordionContent>
                     {/* Endereço */}
-                    <div className="space-y-4">
-                      <h3 className="font-semibold text-lg flex items-center gap-2">
-                        <MapPin className="h-5 w-5 text-primary" />
-                        Endereço
-                      </h3>
+                    <div className="space-y-4 pt-2">
                       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                         <div className="md:col-span-2">
                           <Label htmlFor="studio-address">Endereço</Label>
@@ -2973,13 +3634,15 @@ const Admin = () => {
                         </div>
                       </div>
                     </div>
+                        </AccordionContent>
+                      </AccordionItem>
 
-                    {/* Horários */}
-                    <div className="space-y-4">
-                      <h3 className="font-semibold text-lg flex items-center gap-2">
-                        <Clock className="h-5 w-5 text-primary" />
-                        Horários de Atendimento
-                      </h3>
+                      <AccordionItem value="horarios">
+                        <AccordionTrigger className="font-semibold">
+                          <span className="flex items-center gap-2"><Clock className="h-4 w-4 text-primary" /> Horários de atendimento</span>
+                        </AccordionTrigger>
+                        <AccordionContent>
+                    <div className="space-y-4 pt-2">
                       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                         <div>
                           <Label htmlFor="studio-hours">Horário de Atendimento</Label>
@@ -3001,14 +3664,15 @@ const Admin = () => {
                         </div>
                       </div>
                     </div>
+                        </AccordionContent>
+                      </AccordionItem>
 
-                    {/* Protocolo */}
-                    <div className="space-y-4">
-                      <h3 className="font-semibold text-lg flex items-center gap-2">
-                        <FileText className="h-5 w-5 text-primary" />
-                        Protocolo de Atendimentos
-                      </h3>
-                      <div className="space-y-4">
+                      <AccordionItem value="politicas">
+                        <AccordionTrigger className="font-semibold">
+                          <span className="flex items-center gap-2"><FileText className="h-4 w-4 text-primary" /> Políticas</span>
+                        </AccordionTrigger>
+                        <AccordionContent>
+                    <div className="space-y-4 pt-2">
                         <div>
                           <Label htmlFor="studio-rescheduling">Política de Remarcação</Label>
                           <Textarea
@@ -3035,7 +3699,7 @@ const Admin = () => {
                             id="studio-late"
                             value={studioInfo.late_policy || ''}
                             onChange={(e) => setStudioInfo({ ...studioInfo, late_policy: e.target.value })}
-                            placeholder="ATRASOS: Não temos tolerância de atraso..."
+                            placeholder={`ATRASOS: Tolerância de ${studioInfo.late_tolerance_minutes ?? 15} min...`}
                             rows={3}
                           />
                         </div>
@@ -3049,134 +3713,100 @@ const Admin = () => {
                             rows={2}
                           />
                         </div>
-                      </div>
                     </div>
+                        </AccordionContent>
+                      </AccordionItem>
 
-                    {/* Biossegurança */}
-                    <div className="space-y-4">
-                      <h3 className="font-semibold text-lg flex items-center gap-2">
-                        <Shield className="h-5 w-5 text-primary" />
-                        Biossegurança
-                      </h3>
-                      <div className="space-y-4">
+                      <AccordionItem value="pagamento-sobre">
+                        <AccordionTrigger className="font-semibold">
+                          <span className="flex items-center gap-2"><CreditCard className="h-4 w-4 text-primary" /> Pagamento e Sobre</span>
+                        </AccordionTrigger>
+                        <AccordionContent>
+                    <div className="space-y-4 pt-2">
                         <div>
-                          <Label htmlFor="studio-biosecurity-title">Título</Label>
-                          <Input
-                            id="studio-biosecurity-title"
-                            value={studioInfo.biosecurity_title || ''}
-                            onChange={(e) => setStudioInfo({ ...studioInfo, biosecurity_title: e.target.value })}
-                            placeholder="Biossegurança"
-                          />
-                        </div>
-                        <div>
-                          <Label htmlFor="studio-biosecurity-desc">Descrição</Label>
-                          <Textarea
-                            id="studio-biosecurity-desc"
-                            value={studioInfo.biosecurity_description || ''}
-                            onChange={(e) => setStudioInfo({ ...studioInfo, biosecurity_description: e.target.value })}
-                            placeholder="Nossa saúde não tem preço..."
-                            rows={4}
-                          />
-                        </div>
-                      </div>
-                    </div>
-
-                    {/* Formas de Pagamento */}
-                    <div className="space-y-4">
-                      <h3 className="font-semibold text-lg flex items-center gap-2">
-                        <CreditCard className="h-5 w-5 text-primary" />
-                        Formas de Pagamento
-                      </h3>
-                      <div className="space-y-4">
-                        <div>
-                          <Label htmlFor="studio-payment-note">Nota sobre Pagamento</Label>
+                          <Label htmlFor="studio-payment-note">Nota de pagamento</Label>
                           <Textarea
                             id="studio-payment-note"
                             value={studioInfo.payment_note || ''}
                             onChange={(e) => setStudioInfo({ ...studioInfo, payment_note: e.target.value })}
-                            placeholder="Lembrando que cartão de crédito e débito tem acréscimo..."
                             rows={2}
                           />
                         </div>
                         <div>
-                          <Label>Formas de Pagamento Aceitas</Label>
-                          <div className="flex flex-wrap gap-2 mt-2">
-                            {['PIX', 'Cartão de Crédito', 'Cartão de Débito', 'Dinheiro'].map((method) => {
-                              const methods = Array.isArray(studioInfo.payment_methods) 
-                                ? studioInfo.payment_methods 
-                                : (typeof studioInfo.payment_methods === 'string' 
-                                  ? JSON.parse(studioInfo.payment_methods || '[]') 
-                                  : []);
-                              const isSelected = methods.includes(method);
-                              return (
-                                <Badge
-                                  key={method}
-                                  variant={isSelected ? 'default' : 'outline'}
-                                  className="cursor-pointer"
-                                  onClick={() => {
-                                    const currentMethods = Array.isArray(studioInfo.payment_methods) 
-                                      ? studioInfo.payment_methods 
-                                      : (typeof studioInfo.payment_methods === 'string' 
-                                        ? JSON.parse(studioInfo.payment_methods || '[]') 
-                                        : []);
-                                    const newMethods = isSelected
-                                      ? currentMethods.filter((m: string) => m !== method)
-                                      : [...currentMethods, method];
-                                    setStudioInfo({ ...studioInfo, payment_methods: newMethods });
-                                  }}
-                                >
-                                  {method}
-                                </Badge>
-                              );
-                            })}
-                          </div>
-                          <p className="text-xs text-muted-foreground mt-2">
-                            PIX é usado para o sinal via sistema. Outros métodos podem ser usados pessoalmente após o sinal.
+                          <Label htmlFor="studio-about">Sobre o estúdio</Label>
+                          <Textarea
+                            id="studio-about"
+                            value={studioInfo.about_text || ''}
+                            onChange={(e) => setStudioInfo({ ...studioInfo, about_text: e.target.value })}
+                            rows={4}
+                          />
+                        </div>
+                        <div>
+                          <Label htmlFor="studio-bio-title">Título biossegurança</Label>
+                          <Input
+                            id="studio-bio-title"
+                            value={studioInfo.biosecurity_title || ''}
+                            onChange={(e) => setStudioInfo({ ...studioInfo, biosecurity_title: e.target.value })}
+                          />
+                        </div>
+                        <div>
+                          <Label htmlFor="studio-bio-desc">Descrição biossegurança</Label>
+                          <Textarea
+                            id="studio-bio-desc"
+                            value={studioInfo.biosecurity_description || ''}
+                            onChange={(e) => setStudioInfo({ ...studioInfo, biosecurity_description: e.target.value })}
+                            rows={3}
+                          />
+                        </div>
+                    </div>
+                        </AccordionContent>
+                      </AccordionItem>
+                    </Accordion>
+
+                    <div className="pt-4">
+                      <Button onClick={handleSaveStudioInfo} disabled={savingStudioInfo} className="w-full sm:w-auto">
+                        {savingStudioInfo ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
+                        Salvar informações
+                      </Button>
+                    </div>
+                    </div>
+
+                    {/* Preview ao vivo */}
+                    <div className="rounded-lg border bg-muted/20 p-4 h-fit sticky top-4">
+                      <h4 className="font-serif font-semibold mb-3">Preview do catálogo</h4>
+                      <div className="space-y-3 text-sm">
+                        <div>
+                          <p className="text-xs text-muted-foreground">Contato</p>
+                          <p>{studioInfo.phone || '—'}</p>
+                          <p className="text-muted-foreground">{studioInfo.instagram || ''}</p>
+                        </div>
+                        <div>
+                          <p className="text-xs text-muted-foreground">Endereço</p>
+                          <p>
+                            {[studioInfo.address, studioInfo.neighborhood, studioInfo.city, studioInfo.state]
+                              .filter(Boolean)
+                              .join(' · ') || '—'}
                           </p>
+                        </div>
+                        <div>
+                          <p className="text-xs text-muted-foreground">Horário</p>
+                          <p>{studioInfo.business_hours || '—'}</p>
+                        </div>
+                        {studioInfo.about_text && (
+                          <div>
+                            <p className="text-xs text-muted-foreground">Sobre</p>
+                            <p className="text-muted-foreground line-clamp-4">{studioInfo.about_text}</p>
+                          </div>
+                        )}
+                        <div>
+                          <p className="text-xs text-muted-foreground">Lead expira em</p>
+                          <p>{studioInfo.lead_expiry_minutes ?? 60} min · atraso {studioInfo.late_tolerance_minutes ?? 15} min</p>
                         </div>
                       </div>
                     </div>
-
-                    {/* Sobre */}
-                    <div className="space-y-4">
-                      <h3 className="font-semibold text-lg">Sobre o Estúdio</h3>
-                      <div>
-                        <Label htmlFor="studio-about">Texto sobre o Estúdio</Label>
-                        <Textarea
-                          id="studio-about"
-                          value={studioInfo.about_text || ''}
-                          onChange={(e) => setStudioInfo({ ...studioInfo, about_text: e.target.value })}
-                          placeholder="Especialistas em realçar sua beleza natural..."
-                          rows={4}
-                        />
-                      </div>
-                    </div>
-
-                    {/* Botão Salvar */}
-                    <div className="flex justify-end pt-4 border-t">
-                      <Button 
-                        onClick={handleSaveStudioInfo}
-                        disabled={savingStudioInfo}
-                        size="lg"
-                        className="gap-2"
-                      >
-                        {savingStudioInfo ? (
-                          <>
-                            <Loader2 className="h-4 w-4 animate-spin" />
-                            Salvando...
-                          </>
-                        ) : (
-                          <>
-                            Salvar Informações
-                          </>
-                        )}
-                      </Button>
-                    </div>
                   </div>
                 ) : (
-                  <div className="text-center py-8 text-muted-foreground">
-                    Carregando informações...
-                  </div>
+                  <p className="text-muted-foreground">Não foi possível carregar as informações.</p>
                 )}
               </CardContent>
             </Card>
@@ -3184,6 +3814,101 @@ const Admin = () => {
 
         </Tabs>
       </main>
+
+      <Dialog open={paymentDialogOpen} onOpenChange={setPaymentDialogOpen}>
+        <DialogContent className="w-[95vw] max-w-md">
+          <DialogHeader>
+            <DialogTitle>Registrar pagamento</DialogTitle>
+          </DialogHeader>
+          {paymentAppointment && (
+            <div className="space-y-4 mt-2">
+              <div className="rounded-lg bg-muted/50 p-3 text-sm space-y-1">
+                <p><strong>Cliente:</strong> {paymentAppointment.client_name}</p>
+                <p><strong>Total:</strong> R$ {Number(paymentAppointment.total_amount).toFixed(2)}</p>
+                <p><strong>Já pago:</strong> R$ {Number(paymentAppointment.amount_paid).toFixed(2)}</p>
+                <p className="text-orange-600">
+                  <strong>Restante:</strong>{' '}
+                  R$ {Math.max(0, Number(paymentAppointment.total_amount) - Number(paymentAppointment.amount_paid)).toFixed(2)}
+                </p>
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="payment-amount">Valor recebido agora (R$)</Label>
+                <Input
+                  id="payment-amount"
+                  type="number"
+                  step="0.01"
+                  min="0.01"
+                  value={paymentAmount}
+                  onChange={(e) => setPaymentAmount(e.target.value)}
+                  placeholder="0.00"
+                />
+                <p className="text-xs text-muted-foreground">
+                  Registra um valor parcial. Cada aumento de &quot;pago&quot; gera um lançamento no Caixa (sinal automático ou restante).
+                </p>
+              </div>
+              <div className="flex gap-2">
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => {
+                    const rest = Math.max(0, Number(paymentAppointment.total_amount) - Number(paymentAppointment.amount_paid));
+                    setPaymentAmount(rest.toFixed(2));
+                  }}
+                >
+                  Preencher restante
+                </Button>
+              </div>
+            </div>
+          )}
+          <DialogFooter className="mt-4">
+            <Button variant="outline" onClick={() => setPaymentDialogOpen(false)} disabled={savingPayment}>
+              Cancelar
+            </Button>
+            <Button onClick={handleRegisterPayment} disabled={savingPayment}>
+              {savingPayment ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <DollarSign className="h-4 w-4 mr-2" />}
+              Confirmar pagamento
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <AlertDialog open={!!remainingConfirmApt} onOpenChange={(open) => !open && setRemainingConfirmApt(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Confirmar recebimento do restante</AlertDialogTitle>
+            <AlertDialogDescription>
+              {remainingConfirmApt && (
+                <>
+                  Confirmar recebimento de{' '}
+                  <strong>
+                    R${' '}
+                    {Math.max(
+                      0,
+                      Number(remainingConfirmApt.total_amount) - Number(remainingConfirmApt.amount_paid),
+                    ).toFixed(2)}
+                  </strong>{' '}
+                  de <strong>{remainingConfirmApt.client_name}</strong>?
+                  Isso zera o restante na Agenda e cria um lançamento manual no Fluxo de Caixa.
+                </>
+              )}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={savingRemaining}>Cancelar</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={(e) => {
+                e.preventDefault();
+                void handleMarkRemainingPaid();
+              }}
+              disabled={savingRemaining}
+            >
+              {savingRemaining ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
+              Confirmar
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       <Footer />
     </div>

@@ -60,6 +60,7 @@ const Catalog = () => {
       const { data: professionalsData } = await supabase
         .from('professionals')
         .select('*')
+        .or('is_active.is.null,is_active.eq.true')
         .order('name');
 
       if (professionalsData) {
@@ -74,6 +75,7 @@ const Catalog = () => {
           professionals:professional_id (name, photo_url),
           categories:category_id (id, name, description, icon, color)
         `)
+        .or('is_active.is.null,is_active.eq.true')
         .order('is_featured', { ascending: false })
         .order('display_order')
         .order('name');

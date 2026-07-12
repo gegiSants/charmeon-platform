@@ -8,6 +8,8 @@ export interface Professional {
   photo_url: string | null;
   phone: string;
   sinal_padrao?: number | null;
+  is_active?: boolean;
+  commission_percent?: number | null;
 }
 
 export interface Service {
@@ -18,11 +20,13 @@ export interface Service {
   duration: number;
   photo_url: string | null;
   sinal_fixo?: number | null;
+  allow_full_payment?: boolean;
   category_id?: string | null;
   description?: string | null;
   short_description?: string | null;
   is_featured?: boolean;
   display_order?: number;
+  is_active?: boolean;
 }
 
 export interface TimeSlot {
@@ -39,17 +43,20 @@ function formatDateLocal(date: Date): string {
   return `${year}-${month}-${day}`;
 }
 
-export const useProfessionals = () => {
+export const useProfessionals = (opts?: { includeInactive?: boolean }) => {
   const [professionals, setProfessionals] = useState<Professional[]>([]);
   const [loading, setLoading] = useState(true);
+  const includeInactive = opts?.includeInactive ?? false;
 
   useEffect(() => {
     const fetchProfessionals = async () => {
-      const { data, error } = await supabase
-        .from('professionals')
-        .select('*')
-        .order('name');
-      
+      let query = supabase.from('professionals').select('*').order('name');
+      if (!includeInactive) {
+        query = query.or('is_active.is.null,is_active.eq.true');
+      }
+
+      const { data, error } = await query;
+
       if (error) {
         console.error('Error fetching professionals:', error);
       } else {
@@ -59,14 +66,15 @@ export const useProfessionals = () => {
     };
 
     fetchProfessionals();
-  }, []);
+  }, [includeInactive]);
 
   return { professionals, loading };
 };
 
-export const useServices = (professionalId: string | null) => {
+export const useServices = (professionalId: string | null, opts?: { includeInactive?: boolean }) => {
   const [services, setServices] = useState<Service[]>([]);
   const [loading, setLoading] = useState(false);
+  const includeInactive = opts?.includeInactive ?? false;
 
   useEffect(() => {
     if (!professionalId) {
@@ -76,12 +84,18 @@ export const useServices = (professionalId: string | null) => {
 
     const fetchServices = async () => {
       setLoading(true);
-      const { data, error } = await supabase
+      let query = supabase
         .from('services')
         .select('*')
         .eq('professional_id', professionalId)
         .order('name');
-      
+
+      if (!includeInactive) {
+        query = query.or('is_active.is.null,is_active.eq.true');
+      }
+
+      const { data, error } = await query;
+
       if (error) {
         console.error('Error fetching services:', error);
       } else {
@@ -91,15 +105,76 @@ export const useServices = (professionalId: string | null) => {
     };
 
     fetchServices();
-  }, [professionalId]);
+  }, [professionalId, includeInactive]);
 
   return { services, loading };
 };
 
+function timeToMinutes(time: string): number {
+  const [h, m] = time.slice(0, 5).split(':').map(Number);
+  return h * 60 + m;
+}
+
+function minutesToTime(total: number): string {
+  const h = Math.floor(total / 60);
+  const m = total % 60;
+  return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
+}
+
+/** Gera slots HH:MM a partir de regras recorrentes para o dia da semana */
+function slotsFromRules(
+  rules: Array<{
+    days_of_week: number[];
+    start_time: string;
+    end_time: string;
+    slot_minutes: number;
+    break_start: string | null;
+    break_end: string | null;
+  }>,
+  weekday: number,
+): string[] {
+  const set = new Set<string>();
+  for (const rule of rules) {
+    if (!rule.days_of_week?.includes(weekday)) continue;
+    const start = timeToMinutes(rule.start_time);
+    const end = timeToMinutes(rule.end_time);
+    const step = rule.slot_minutes || 30;
+    const breakStart = rule.break_start ? timeToMinutes(rule.break_start) : null;
+    const breakEnd = rule.break_end ? timeToMinutes(rule.break_end) : null;
+
+    for (let t = start; t < end; t += step) {
+      if (breakStart != null && breakEnd != null && t >= breakStart && t < breakEnd) {
+        continue;
+      }
+      set.add(minutesToTime(t));
+    }
+  }
+  return Array.from(set).sort();
+}
+
 export const generateTimeSlots = async (date: Date, professionalId: string): Promise<TimeSlot[]> => {
   const dateStr = formatDateLocal(date);
 
-  // Buscar APENAS horários específicos da profissional (sem globais)
+  // Libera horários de leads expirados antes de montar a grade
+  try {
+    await supabase.rpc('expire_stale_leads');
+  } catch (e) {
+    console.warn('expire_stale_leads:', e);
+  }
+
+  // 1) Regras recorrentes (preferencial)
+  const { data: rules } = await supabase
+    .from('availability_rules')
+    .select('days_of_week, start_time, end_time, slot_minutes, break_start, break_end')
+    .eq('professional_id', professionalId)
+    .eq('is_active', true);
+
+  let hours: string[] = [];
+  if (rules && rules.length > 0) {
+    hours = slotsFromRules(rules, date.getDay());
+  }
+
+  // 2) Fallback / complemento: horários manuais (available_hours)
   const { data: specificHours, error: specificError } = await supabase
     .from('available_hours')
     .select('time')
@@ -111,14 +186,15 @@ export const generateTimeSlots = async (date: Date, professionalId: string): Pro
     console.error('Erro ao buscar horários específicos:', specificError);
   }
 
-  // Usar apenas horários específicos da profissional
-  let hours: string[] = specificHours && specificHours.length > 0
-    ? specificHours.map(h => h.time)
-    : []; // Se não tiver horários configurados, retorna vazio (profissional não tem horários disponíveis)
-
-  // IMPORTANTE: Não usar horários padrão se a profissional não tiver configurado
-  // Cada profissional deve configurar seus próprios horários no admin
-
+  if (specificHours && specificHours.length > 0) {
+    const manual = specificHours.map((h) => h.time.slice(0, 5));
+    if (hours.length === 0) {
+      hours = manual;
+    } else {
+      // Une regras + exceções manuais
+      hours = Array.from(new Set([...hours, ...manual])).sort();
+    }
+  }
   // Buscar bloqueios de agenda (dias/horários indisponíveis)
   const { data: blockedSlots, error: blockedError } = await supabase
     .from('blocked_slots')
@@ -306,32 +382,20 @@ export const createAppointment = async (data: {
 
   const serviceDuration = service.duration;
 
-  // Buscar horários disponíveis da profissional
-  const { data: availableHours, error: hoursError } = await supabase
-    .from('available_hours')
-    .select('time')
-    .eq('professional_id', data.professionalId)
-    .eq('is_active', true)
-    .order('time');
+  // Liberar leads expirados e obter grade do dia (regras + manuais)
+  const daySlots = await generateTimeSlots(data.date, data.professionalId);
+  const hours = daySlots.map((s) => s.time);
 
-  if (hoursError) {
-    throw new Error('Erro ao verificar horários disponíveis');
+  if (!daySlots.some((s) => s.time.slice(0, 5) === data.time.slice(0, 5) && s.available)) {
+    throw new Error(`O horário ${data.time} não está disponível para esta profissional.`);
   }
-
-  const hours = (availableHours || []).map(h => h.time);
 
   // Calcular horário de término do serviço
   const endTime = addMinutesToTime(data.time, serviceDuration);
 
   // VALIDAÇÃO: Verificar se há espaço suficiente nos horários disponíveis
-  // O serviço precisa caber dentro dos horários disponíveis
   const startMinutes = timeToMinutesFromMidnight(data.time);
   const endMinutes = timeToMinutesFromMidnight(endTime);
-  
-  // Verificar se o horário de início está nos horários disponíveis
-  if (!hours.includes(data.time)) {
-    throw new Error(`O horário ${data.time} não está disponível para esta profissional.`);
-  }
 
   // VALIDAÇÃO CRÍTICA: Verificar se o horário de término está dentro dos horários disponíveis
   // Se os horários disponíveis são 08:00-12:00 (finalizando 13:00), e o serviço de 3h começa às 12:00,
