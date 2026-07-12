@@ -14,7 +14,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Badge } from '@/components/ui/badge';
 import { useProfessionals, useServices } from '@/hooks/useAppointments';
 import { supabase } from '@/integrations/supabase/client';
-import { Plus, Users, Scissors, Calendar, List, Phone, Clock, Trash2, Edit, Loader2, CheckCircle, XCircle, DollarSign, Mail, Ban, Upload, X, Tag, Sparkles, MapPin, Instagram, Shield, CreditCard, FileText, UserCircle, LogOut, Wallet, MessageCircle, TrendingUp } from 'lucide-react';
+import { Plus, Users, Scissors, Calendar, List, Phone, Clock, Trash2, Edit, Loader2, CheckCircle, XCircle, DollarSign, Mail, Ban, Upload, X, Tag, Sparkles, MapPin, Instagram, Shield, CreditCard, FileText, UserCircle, LogOut, Wallet, MessageCircle, TrendingUp, ChevronLeft, ChevronRight } from 'lucide-react';
 import CashFlowTab from '@/components/CashFlowTab';
 import AgendaCalendar from '@/components/AgendaCalendar';
 import AvailabilityRulesSection from '@/components/AvailabilityRulesSection';
@@ -90,6 +90,12 @@ const Admin = () => {
   const [clientsProfessionalFilter, setClientsProfessionalFilter] = useState<string>('all');
   const [resendingLeadId, setResendingLeadId] = useState<string | null>(null);
   const [proRevenueRank, setProRevenueRank] = useState<{ id: string; name: string; total: number }[]>([]);
+  const [scheduleSearch, setScheduleSearch] = useState('');
+  const [scheduleStatusFilter, setScheduleStatusFilter] = useState<string>('all');
+  const [scheduleDateFrom, setScheduleDateFrom] = useState('');
+  const [scheduleDateTo, setScheduleDateTo] = useState('');
+  const [schedulePageSize, setSchedulePageSize] = useState(10);
+  const [schedulePage, setSchedulePage] = useState(1);
   
   // Estados para formulários
   const [newProfessional, setNewProfessional] = useState({
@@ -1269,7 +1275,14 @@ const Admin = () => {
     }
   };
 
-  const getStatusBadge = (status: string) => {
+  const getStatusBadge = (apt: { status: string; amount_paid?: number }) => {
+    if (apt.status === 'pending' && Number(apt.amount_paid) > 0) {
+      return (
+        <Badge className="bg-amber-100 text-amber-900">
+          Pago — aguardando WhatsApp
+        </Badge>
+      );
+    }
     const statusConfig = {
       pending: { label: 'Pendente', className: 'bg-yellow-100 text-yellow-800' },
       confirmed: { label: 'Confirmado', className: 'bg-green-100 text-green-800' },
@@ -1277,7 +1290,7 @@ const Admin = () => {
       cancelled: { label: 'Cancelado', className: 'bg-red-100 text-red-800' },
     };
 
-    const config = statusConfig[status as keyof typeof statusConfig] || statusConfig.pending;
+    const config = statusConfig[apt.status as keyof typeof statusConfig] || statusConfig.pending;
     return (
       <Badge className={config.className}>
         {config.label}
@@ -1285,13 +1298,64 @@ const Admin = () => {
     );
   };
 
-  // Separar agendamentos confirmados (para aba Agenda) e leads (para aba Leads)
-  const confirmedAppointments = appointments.filter(a => a.status === 'confirmed' || a.status === 'completed');
-  const leadAppointments = appointments.filter(a => a.status === 'pending');
+  // Agenda: confirmados/concluídos + pendentes JÁ PAGOS (aguardam WhatsApp)
+  // Leads: pendentes SEM pagamento
+  const confirmedAppointments = appointments.filter(
+    (a) =>
+      a.status === 'confirmed' ||
+      a.status === 'completed' ||
+      (a.status === 'pending' && Number(a.amount_paid) > 0),
+  );
+  const leadAppointments = appointments.filter(
+    (a) => a.status === 'pending' && Number(a.amount_paid) <= 0,
+  );
   
-  const filteredAppointments = scheduleProfessionalFilter && scheduleProfessionalFilter !== 'all'
-    ? confirmedAppointments.filter(a => a.professional_id === scheduleProfessionalFilter)
-    : confirmedAppointments;
+  const filteredAppointments = (() => {
+    let list = confirmedAppointments;
+
+    if (scheduleProfessionalFilter !== 'all') {
+      list = list.filter((a) => a.professional_id === scheduleProfessionalFilter);
+    }
+    if (scheduleStatusFilter !== 'all') {
+      if (scheduleStatusFilter === 'awaiting_whatsapp') {
+        list = list.filter((a) => a.status === 'pending' && Number(a.amount_paid) > 0);
+      } else {
+        list = list.filter((a) => a.status === scheduleStatusFilter);
+      }
+    }
+    if (scheduleDateFrom) {
+      list = list.filter((a) => a.appointment_date >= scheduleDateFrom);
+    }
+    if (scheduleDateTo) {
+      list = list.filter((a) => a.appointment_date <= scheduleDateTo);
+    }
+    if (scheduleSearch.trim()) {
+      const q = scheduleSearch.trim().toLowerCase();
+      const qDigits = q.replace(/\D/g, '');
+      list = list.filter((a) => {
+        const nameOk = a.client_name?.toLowerCase().includes(q);
+        const phoneOk = qDigits
+          ? a.client_phone?.replace(/\D/g, '').includes(qDigits)
+          : false;
+        const serviceOk = a.services?.name?.toLowerCase().includes(q);
+        return nameOk || phoneOk || serviceOk;
+      });
+    }
+
+    // Mais recentes em cima (data desc, depois horário desc)
+    return [...list].sort((a, b) => {
+      const d = b.appointment_date.localeCompare(a.appointment_date);
+      if (d !== 0) return d;
+      return (b.appointment_time || '').localeCompare(a.appointment_time || '');
+    });
+  })();
+
+  const scheduleTotalPages = Math.max(1, Math.ceil(filteredAppointments.length / schedulePageSize));
+  const scheduleCurrentPage = Math.min(schedulePage, scheduleTotalPages);
+  const paginatedAppointments = filteredAppointments.slice(
+    (scheduleCurrentPage - 1) * schedulePageSize,
+    scheduleCurrentPage * schedulePageSize,
+  );
     
   const filteredLeads = leadsProfessionalFilter && leadsProfessionalFilter !== 'all'
     ? leadAppointments.filter(a => a.professional_id === leadsProfessionalFilter)
@@ -1486,50 +1550,40 @@ const Admin = () => {
           {/* Tab: Agenda */}
           <TabsContent value="schedule">
             <Card>
-              <CardHeader className="flex flex-row items-center justify-between flex-wrap gap-4">
-                <CardTitle className="font-serif">Agenda</CardTitle>
-                <div className="flex gap-2 flex-wrap">
-                  <Select value={scheduleProfessionalFilter} onValueChange={setScheduleProfessionalFilter}>
-                    <SelectTrigger className="w-[200px]">
-                      <SelectValue placeholder="Todas as profissionais" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="all">Todas as profissionais</SelectItem>
-                      {professionals.map((pro) => (
-                        <SelectItem key={pro.id} value={pro.id}>{pro.name}</SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                  <div className="flex rounded-md border overflow-hidden">
-                    <Button
-                      type="button"
-                      variant={agendaView === 'table' ? 'default' : 'ghost'}
-                      size="sm"
-                      className="rounded-none"
-                      onClick={() => setAgendaView('table')}
-                    >
-                      Lista
-                    </Button>
-                    <Button
-                      type="button"
-                      variant={agendaView === 'calendar' ? 'default' : 'ghost'}
-                      size="sm"
-                      className="rounded-none"
-                      onClick={() => setAgendaView('calendar')}
-                    >
-                      Calendário
-                    </Button>
-                  </div>
-                  <Button onClick={loadAppointments} variant="outline" size="sm">
-                    Atualizar
-                  </Button>
-                  <Dialog open={isManualAppointmentDialogOpen} onOpenChange={setIsManualAppointmentDialogOpen}>
-                    <DialogTrigger asChild>
-                      <Button size="sm">
-                        <Plus className="h-4 w-4 mr-2" />
-                        Adicionar Agendamento
+              <CardHeader className="space-y-4">
+                <div className="flex flex-row items-center justify-between flex-wrap gap-4">
+                  <CardTitle className="font-serif">Agenda</CardTitle>
+                  <div className="flex gap-2 flex-wrap">
+                    <div className="flex rounded-md border overflow-hidden">
+                      <Button
+                        type="button"
+                        variant={agendaView === 'table' ? 'default' : 'ghost'}
+                        size="sm"
+                        className="rounded-none"
+                        onClick={() => setAgendaView('table')}
+                      >
+                        Lista
                       </Button>
-                    </DialogTrigger>
+                      <Button
+                        type="button"
+                        variant={agendaView === 'calendar' ? 'default' : 'ghost'}
+                        size="sm"
+                        className="rounded-none"
+                        onClick={() => setAgendaView('calendar')}
+                      >
+                        Calendário
+                      </Button>
+                    </div>
+                    <Button onClick={loadAppointments} variant="outline" size="sm">
+                      Atualizar
+                    </Button>
+                    <Dialog open={isManualAppointmentDialogOpen} onOpenChange={setIsManualAppointmentDialogOpen}>
+                      <DialogTrigger asChild>
+                        <Button size="sm">
+                          <Plus className="h-4 w-4 mr-2" />
+                          Adicionar Agendamento
+                        </Button>
+                      </DialogTrigger>
                     <DialogContent className="w-[95vw] max-w-2xl max-h-[90vh] overflow-y-auto p-4 sm:p-6">
                       <DialogHeader>
                         <DialogTitle>Adicionar Agendamento Manual</DialogTitle>
@@ -1702,6 +1756,144 @@ const Admin = () => {
                     </DialogContent>
                   </Dialog>
                 </div>
+                </div>
+                {agendaView === 'calendar' && (
+                  <div className="flex flex-wrap gap-2 items-end">
+                    <div className="w-[200px]">
+                      <Label className="text-xs text-muted-foreground">Profissional</Label>
+                      <Select
+                        value={scheduleProfessionalFilter}
+                        onValueChange={setScheduleProfessionalFilter}
+                      >
+                        <SelectTrigger>
+                          <SelectValue placeholder="Todas" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="all">Todas as profissionais</SelectItem>
+                          {professionals.map((pro) => (
+                            <SelectItem key={pro.id} value={pro.id}>{pro.name}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  </div>
+                )}
+                {agendaView === 'table' && (
+                  <div className="flex flex-wrap gap-2 items-end">
+                    <div className="flex-1 min-w-[160px]">
+                      <Label className="text-xs text-muted-foreground">Buscar</Label>
+                      <Input
+                        placeholder="Cliente, telefone ou serviço"
+                        value={scheduleSearch}
+                        onChange={(e) => {
+                          setScheduleSearch(e.target.value);
+                          setSchedulePage(1);
+                        }}
+                      />
+                    </div>
+                    <div className="w-[180px]">
+                      <Label className="text-xs text-muted-foreground">Profissional</Label>
+                      <Select
+                        value={scheduleProfessionalFilter}
+                        onValueChange={(v) => {
+                          setScheduleProfessionalFilter(v);
+                          setSchedulePage(1);
+                        }}
+                      >
+                        <SelectTrigger>
+                          <SelectValue placeholder="Todas" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="all">Todas as profissionais</SelectItem>
+                          {professionals.map((pro) => (
+                            <SelectItem key={pro.id} value={pro.id}>{pro.name}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div className="w-[180px]">
+                      <Label className="text-xs text-muted-foreground">Status</Label>
+                      <Select
+                        value={scheduleStatusFilter}
+                        onValueChange={(v) => {
+                          setScheduleStatusFilter(v);
+                          setSchedulePage(1);
+                        }}
+                      >
+                        <SelectTrigger>
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="all">Todos</SelectItem>
+                          <SelectItem value="awaiting_whatsapp">Aguardando WhatsApp</SelectItem>
+                          <SelectItem value="confirmed">Confirmado</SelectItem>
+                          <SelectItem value="completed">Concluído</SelectItem>
+                          <SelectItem value="pending">Pendente (pago)</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div className="w-[140px]">
+                      <Label className="text-xs text-muted-foreground">De</Label>
+                      <Input
+                        type="date"
+                        value={scheduleDateFrom}
+                        onChange={(e) => {
+                          setScheduleDateFrom(e.target.value);
+                          setSchedulePage(1);
+                        }}
+                      />
+                    </div>
+                    <div className="w-[140px]">
+                      <Label className="text-xs text-muted-foreground">Até</Label>
+                      <Input
+                        type="date"
+                        value={scheduleDateTo}
+                        onChange={(e) => {
+                          setScheduleDateTo(e.target.value);
+                          setSchedulePage(1);
+                        }}
+                      />
+                    </div>
+                    <div className="w-[110px]">
+                      <Label className="text-xs text-muted-foreground">Por página</Label>
+                      <Select
+                        value={String(schedulePageSize)}
+                        onValueChange={(v) => {
+                          setSchedulePageSize(Number(v));
+                          setSchedulePage(1);
+                        }}
+                      >
+                        <SelectTrigger>
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="5">5</SelectItem>
+                          <SelectItem value="10">10</SelectItem>
+                          <SelectItem value="20">20</SelectItem>
+                          <SelectItem value="50">50</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    {(scheduleSearch || scheduleStatusFilter !== 'all' || scheduleDateFrom || scheduleDateTo || scheduleProfessionalFilter !== 'all') && (
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        className="mb-0.5"
+                        onClick={() => {
+                          setScheduleSearch('');
+                          setScheduleStatusFilter('all');
+                          setScheduleDateFrom('');
+                          setScheduleDateTo('');
+                          setScheduleProfessionalFilter('all');
+                          setSchedulePage(1);
+                        }}
+                      >
+                        Limpar
+                      </Button>
+                    )}
+                  </div>
+                )}
               </CardHeader>
               <CardContent>
                 {loadingAppointments ? (
@@ -1715,6 +1907,15 @@ const Admin = () => {
                     onRefresh={loadAppointments}
                   />
                 ) : (
+                  <div className="space-y-4">
+                  <div className="flex items-center justify-between text-xs text-muted-foreground px-1">
+                    <span>
+                      {filteredAppointments.length === 0
+                        ? 'Nenhum agendamento'
+                        : `Mostrando ${(scheduleCurrentPage - 1) * schedulePageSize + 1}–${Math.min(scheduleCurrentPage * schedulePageSize, filteredAppointments.length)} de ${filteredAppointments.length}`}
+                    </span>
+                    <span>Mais recentes primeiro</span>
+                  </div>
                   <div className="overflow-x-auto -mx-4 px-4 sm:mx-0 sm:px-0">
                     <Table>
                       <TableHeader>
@@ -1729,14 +1930,14 @@ const Admin = () => {
                         </TableRow>
                       </TableHeader>
                       <TableBody>
-                        {filteredAppointments.length === 0 ? (
+                        {paginatedAppointments.length === 0 ? (
                           <TableRow>
                             <TableCell colSpan={7} className="text-center py-8 text-muted-foreground">
                               Nenhum agendamento encontrado
                             </TableCell>
                           </TableRow>
                         ) : (
-                          filteredAppointments.map((apt) => {
+                          paginatedAppointments.map((apt) => {
                             const service = apt.services;
                             const professional = apt.professionals;
                             const restante = apt.total_amount - apt.amount_paid;
@@ -1795,14 +1996,20 @@ const Admin = () => {
                                 </TableCell>
                                 <TableCell>
                                   <div className="space-y-1">
-                                    {getStatusBadge(apt.status)}
+                                    {getStatusBadge(apt)}
+                                    {apt.status === 'pending' && Number(apt.amount_paid) > 0 && (
+                                      <div className="flex items-center gap-1 text-xs text-amber-700">
+                                        <MessageCircle className="h-3 w-3" />
+                                        <span>Confirmação WhatsApp pendente</span>
+                                      </div>
+                                    )}
                                     {apt.email_confirmed && (
                                       <div className="flex items-center gap-1 text-xs text-green-600">
                                         <CheckCircle className="h-3 w-3" />
                                         <span>Confirmado via email</span>
                                       </div>
                                     )}
-                                    {apt.email_confirmation_sent && !apt.email_confirmed && apt.status === 'pending' && (
+                                    {apt.email_confirmation_sent && !apt.email_confirmed && apt.status === 'pending' && Number(apt.amount_paid) <= 0 && (
                                       <div className="flex items-center gap-1 text-xs text-yellow-600">
                                         <Mail className="h-3 w-3" />
                                         <span>Aguardando confirmação</span>
@@ -1857,6 +2064,36 @@ const Admin = () => {
                         )}
                       </TableBody>
                     </Table>
+                  </div>
+                  {filteredAppointments.length > 0 && (
+                    <div className="flex flex-col sm:flex-row items-center justify-between gap-3 pt-1">
+                      <p className="text-xs text-muted-foreground">
+                        Página {scheduleCurrentPage} de {scheduleTotalPages}
+                      </p>
+                      <div className="flex items-center gap-2">
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          disabled={scheduleCurrentPage <= 1}
+                          onClick={() => setSchedulePage((p) => Math.max(1, p - 1))}
+                        >
+                          <ChevronLeft className="h-4 w-4 mr-1" />
+                          Anterior
+                        </Button>
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          disabled={scheduleCurrentPage >= scheduleTotalPages}
+                          onClick={() => setSchedulePage((p) => Math.min(scheduleTotalPages, p + 1))}
+                        >
+                          Próxima
+                          <ChevronRight className="h-4 w-4 ml-1" />
+                        </Button>
+                      </div>
+                    </div>
+                  )}
                   </div>
                 )}
               </CardContent>

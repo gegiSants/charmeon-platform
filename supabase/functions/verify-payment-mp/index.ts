@@ -126,10 +126,10 @@ serve(async (req) => {
         logStep("Error fetching appointment data", { error: fetchError.message });
       }
 
-      // Atualizar status do agendamento - manter como 'pending' até confirmação via WhatsApp
-      // O status será mudado para 'confirmed' quando o cliente confirmar via WhatsApp
+      // Pagamento do sinal OK → permanece pending até confirmação via WhatsApp.
+      // A Agenda já exibe pending com amount_paid > 0; Leads só quem não pagou.
       const updateData: any = {
-        status: 'pending', // Mantém como pending até confirmação do cliente
+        status: 'pending',
         amount_paid: amount,
       };
 
@@ -148,7 +148,7 @@ serve(async (req) => {
       if (updateError) {
         logStep("Error updating appointment", { error: updateError.message });
       } else {
-        logStep("Appointment updated successfully - payment confirmed, awaiting WhatsApp confirmation");
+        logStep("Appointment updated successfully - deposit paid, awaiting WhatsApp confirmation");
         
         // Enviar mensagem via WhatsApp através do webhook do n8n
         if (appointmentData) {
@@ -176,7 +176,7 @@ serve(async (req) => {
                 payment_type: appointmentData.payment_type,
                 amount_paid: amount,
                 total_amount: appointmentData.total_amount,
-                status: appointmentData.status,
+                status: 'pending',
                 created_at: appointmentData.created_at,
               },
               professional: professional ? {

@@ -38,15 +38,19 @@ interface AgendaCalendarProps {
 const STATUS_COLORS: Record<string, string> = {
   confirmed: '#16a34a',
   completed: '#2563eb',
-  pending: '#ca8a04',
+  pending: '#d97706',
   cancelled: '#dc2626',
 };
 
 function toEvent(apt: AgendaCalendarAppointment) {
   const durationMin = apt.services?.duration || 60;
-  const start = `${apt.appointment_date}T${apt.appointment_time}`;
-  const startDate = new Date(start);
-  const endDate = new Date(startDate.getTime() + durationMin * 60_000);
+  const time = (apt.appointment_time || '00:00').slice(0, 5);
+  const start = `${apt.appointment_date}T${time}:00`;
+  const [h, m] = time.split(':').map(Number);
+  const endTotal = h * 60 + m + durationMin;
+  const endH = String(Math.floor(endTotal / 60)).padStart(2, '0');
+  const endM = String(endTotal % 60).padStart(2, '0');
+  const end = `${apt.appointment_date}T${endH}:${endM}:00`;
   const proName = apt.professionals?.name || 'Sem profissional';
   const serviceName = apt.services?.name || 'Serviço';
 
@@ -54,9 +58,9 @@ function toEvent(apt: AgendaCalendarAppointment) {
     id: apt.id,
     title: `${apt.client_name} — ${serviceName}`,
     start,
-    end: endDate.toISOString(),
-    backgroundColor: STATUS_COLORS[apt.status] || '#6b7280',
-    borderColor: STATUS_COLORS[apt.status] || '#6b7280',
+    end,
+    backgroundColor: STATUS_COLORS[apt.status] || STATUS_COLORS.confirmed,
+    borderColor: STATUS_COLORS[apt.status] || STATUS_COLORS.confirmed,
     extendedProps: {
       professionalId: apt.professional_id,
       professionalName: proName,
